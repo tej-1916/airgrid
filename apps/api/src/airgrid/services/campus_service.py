@@ -1,0 +1,755 @@
+import io
+import math
+import os
+import uuid
+from typing import Optional, List, Tuple
+from PIL import Image
+from fastapi import HTTPException, status
+from sqlalchemy import select, func, and_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from airgrid.core.config import settings
+from airgrid.core.logging import logger
+from airgrid.models.all_models import Campus, Building, Floor, FloorPlanAsset, User
+from airgrid.schemas.campus import (
+    CampusCreate,
+    CampusUpdate,
+    BuildingCreate,
+    BuildingUpdate,
+    FloorCreate,
+    FloorUpdate,
+    CalibrationRequest,
+)
+from airgrid.services.auth_service import log_auth_audit_event
+
+
+def get_secure_upload_dir() -> str:
+    """Returns absolute path to secure uploads directory and ensures it exists."""
+    upload_dir = os.path.abspath(settings.AIRGRID_UPLOAD_DIR)
+    os.makedirs(upload_dir, exist_ok=True)
+    return upload_dir
+
+
+# =========================================================================
+# Campus Operations
+# =========================================================================
+
+async def list_campuses(
+    db: AsyncSession,
+    skip: int = 0,
+    limit: int = 50,
+    query: Optional[str] = None,
+    status_filter: Optional[str] = None,
+) -> Tuple[int, List[Campus]]:
+    """List campuses with pagination and optional search query."""
+    stmt = select(Campus).options(
+        selectinload(Campus.buildings).selectinload(Building.floors).selectinload(Floor.floor_plan)
+    )
+
+    conditions = []
+    if query:
+        search_term = f"%{query.strip()}%"
+        conditions.append(
+            (Campus.name.ilike(search_term)) | (Campus.code.ilike(search_term)) | (Campus.address.ilike(search_term))
+        )
+    if status_filter:
+        conditions.append(Campus.status == status_filter)
+
+    if conditions:
+        stmt = stmt.where(and_(*conditions))
+
+    # Total count
+    count_stmt = select(func.count(Campus.id))
+    if conditions:
+        count_stmt = count_stmt.where(and_(*conditions))
+    total_res = await db.execute(count_stmt)
+    total = total_res.scalar() or 0
+
+    stmt = stmt.order_by(Campus.name.asc()).offset(skip).limit(limit)
+    res = await db.execute(stmt)
+    campuses = list(res.scalars().all())
+    return total, campuses
+
+
+async def get_campus_by_id(db: AsyncSession, campus_id: uuid.UUID) -> Campus:
+    """Retrieve single campus by UUID with related hierarchy."""
+    stmt = (
+        select(Campus)
+        .where(Campus.id == campus_id)
+        .options(
+            selectinload(Campus.buildings)
+            .selectinload(Building.floors)
+            .selectinload(Floor.floor_plan)
+        )
+    )
+    res = await db.execute(stmt)
+    campus = res.scalar_one_or_none()
+    if not campus:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Campus with id '{campus_id}' not found",
+        )
+    return campus
+
+
+async def create_campus(
+    db: AsyncSession,
+    data: CampusCreate,
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> Campus:
+    """Create a new campus record."""
+    # Check uniqueness of campus code
+    existing = await db.execute(select(Campus).where(Campus.code == data.code))
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Campus with code '{data.code}' already exists",
+        )
+
+    campus = Campus(
+        name=data.name.strip(),
+        code=data.code.strip().upper(),
+        description=data.description.strip() if data.description else None,
+        address=data.address.strip() if data.address else None,
+        latitude=data.latitude,
+        longitude=data.longitude,
+        status="active",
+    )
+    db.add(campus)
+    await db.commit()
+    await db.refresh(campus)
+
+    await log_auth_audit_event(
+        db=db,
+        action="campus.created",
+        actor_id=current_user.id,
+        payload={"campus_id": str(campus.id), "name": campus.name, "code": campus.code},
+        ip_address=ip_address,
+    )
+    return await get_campus_by_id(db, campus.id)
+
+
+async def update_campus(
+    db: AsyncSession,
+    campus_id: uuid.UUID,
+    data: CampusUpdate,
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> Campus:
+    """Update campus metadata."""
+    campus = await get_campus_by_id(db, campus_id)
+
+    if data.code and data.code.strip().upper() != campus.code:
+        norm_code = data.code.strip().upper()
+        existing = await db.execute(
+            select(Campus).where(and_(Campus.code == norm_code, Campus.id != campus_id))
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Campus with code '{norm_code}' already exists",
+            )
+        campus.code = norm_code
+
+    if data.name is not None:
+        campus.name = data.name.strip()
+    if data.description is not None:
+        campus.description = data.description.strip() if data.description else None
+    if data.address is not None:
+        campus.address = data.address.strip() if data.address else None
+    if data.latitude is not None:
+        campus.latitude = data.latitude
+    if data.longitude is not None:
+        campus.longitude = data.longitude
+    if data.status is not None:
+        campus.status = data.status
+
+    await db.commit()
+    await db.refresh(campus)
+
+    await log_auth_audit_event(
+        db=db,
+        action="campus.updated",
+        actor_id=current_user.id,
+        payload={"campus_id": str(campus.id), "name": campus.name, "code": campus.code},
+        ip_address=ip_address,
+    )
+    return await get_campus_by_id(db, campus.id)
+
+
+async def delete_campus(
+    db: AsyncSession,
+    campus_id: uuid.UUID,
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> None:
+    """Delete a campus and cascaded hierarchy."""
+    campus = await get_campus_by_id(db, campus_id)
+    payload = {"campus_id": str(campus.id), "name": campus.name, "code": campus.code}
+    await db.delete(campus)
+    await db.commit()
+
+    await log_auth_audit_event(
+        db=db,
+        action="campus.deleted",
+        actor_id=current_user.id,
+        payload=payload,
+        ip_address=ip_address,
+    )
+
+
+# =========================================================================
+# Building Operations
+# =========================================================================
+
+async def list_buildings_for_campus(
+    db: AsyncSession, campus_id: uuid.UUID
+) -> List[Building]:
+    """List all buildings within a specified campus."""
+    # Ensure campus exists
+    await get_campus_by_id(db, campus_id)
+
+    stmt = (
+        select(Building)
+        .where(Building.campus_id == campus_id)
+        .options(selectinload(Building.floors).selectinload(Floor.floor_plan))
+        .order_by(Building.name.asc())
+    )
+    res = await db.execute(stmt)
+    return list(res.scalars().all())
+
+
+async def get_building_by_id(db: AsyncSession, building_id: uuid.UUID) -> Building:
+    """Retrieve single building by UUID."""
+    stmt = (
+        select(Building)
+        .where(Building.id == building_id)
+        .options(selectinload(Building.floors).selectinload(Floor.floor_plan))
+    )
+    res = await db.execute(stmt)
+    building = res.scalar_one_or_none()
+    if not building:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Building with id '{building_id}' not found",
+        )
+    return building
+
+
+async def create_building(
+    db: AsyncSession,
+    campus_id: uuid.UUID,
+    data: BuildingCreate,
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> Building:
+    """Create a new building under a campus."""
+    campus = await get_campus_by_id(db, campus_id)
+
+    norm_code = data.building_code.strip().upper()
+    existing = await db.execute(
+        select(Building).where(
+            and_(Building.campus_id == campus_id, Building.building_code == norm_code)
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Building with code '{norm_code}' already exists in this campus",
+        )
+
+    building = Building(
+        campus_id=campus_id,
+        name=data.name.strip(),
+        building_code=norm_code,
+        description=data.description.strip() if data.description else None,
+        floors_count=data.floors_count,
+        status="active",
+    )
+    db.add(building)
+    await db.commit()
+    await db.refresh(building)
+
+    await log_auth_audit_event(
+        db=db,
+        action="building.created",
+        actor_id=current_user.id,
+        payload={
+            "building_id": str(building.id),
+            "campus_id": str(campus.id),
+            "name": building.name,
+            "code": building.building_code,
+        },
+        ip_address=ip_address,
+    )
+    return await get_building_by_id(db, building.id)
+
+
+async def update_building(
+    db: AsyncSession,
+    building_id: uuid.UUID,
+    data: BuildingUpdate,
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> Building:
+    """Update building metadata."""
+    building = await get_building_by_id(db, building_id)
+
+    if data.building_code:
+        norm_code = data.building_code.strip().upper()
+        if norm_code != building.building_code:
+            existing = await db.execute(
+                select(Building).where(
+                    and_(
+                        Building.campus_id == building.campus_id,
+                        Building.building_code == norm_code,
+                        Building.id != building_id,
+                    )
+                )
+            )
+            if existing.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Building with code '{norm_code}' already exists in this campus",
+                )
+            building.building_code = norm_code
+
+    if data.name is not None:
+        building.name = data.name.strip()
+    if data.description is not None:
+        building.description = data.description.strip() if data.description else None
+    if data.floors_count is not None:
+        building.floors_count = data.floors_count
+    if data.status is not None:
+        building.status = data.status
+
+    await db.commit()
+    await db.refresh(building)
+
+    await log_auth_audit_event(
+        db=db,
+        action="building.updated",
+        actor_id=current_user.id,
+        payload={"building_id": str(building.id), "name": building.name},
+        ip_address=ip_address,
+    )
+    return await get_building_by_id(db, building.id)
+
+
+async def delete_building(
+    db: AsyncSession,
+    building_id: uuid.UUID,
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> None:
+    """Delete building and its floors."""
+    building = await get_building_by_id(db, building_id)
+    payload = {"building_id": str(building.id), "name": building.name}
+    await db.delete(building)
+    await db.commit()
+
+    await log_auth_audit_event(
+        db=db,
+        action="building.deleted",
+        actor_id=current_user.id,
+        payload=payload,
+        ip_address=ip_address,
+    )
+
+
+# =========================================================================
+# Floor Operations
+# =========================================================================
+
+async def list_floors_for_building(
+    db: AsyncSession, building_id: uuid.UUID
+) -> List[Floor]:
+    """List all floors for a specified building."""
+    await get_building_by_id(db, building_id)
+    stmt = (
+        select(Floor)
+        .where(Floor.building_id == building_id)
+        .options(selectinload(Floor.floor_plan))
+        .order_by(Floor.floor_number.asc())
+    )
+    res = await db.execute(stmt)
+    return list(res.scalars().all())
+
+
+async def get_floor_by_id(db: AsyncSession, floor_id: uuid.UUID) -> Floor:
+    """Retrieve single floor by UUID."""
+    stmt = (
+        select(Floor)
+        .where(Floor.id == floor_id)
+        .options(selectinload(Floor.floor_plan), selectinload(Floor.building))
+    )
+    res = await db.execute(stmt)
+    floor = res.scalar_one_or_none()
+    if not floor:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Floor with id '{floor_id}' not found",
+        )
+    return floor
+
+
+async def create_floor(
+    db: AsyncSession,
+    building_id: uuid.UUID,
+    data: FloorCreate,
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> Floor:
+    """Create a new floor under a building."""
+    building = await get_building_by_id(db, building_id)
+
+    # Check uniqueness of floor_number in building
+    existing = await db.execute(
+        select(Floor).where(
+            and_(Floor.building_id == building_id, Floor.floor_number == data.floor_number)
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Floor number {data.floor_number} already exists in building '{building.name}'",
+        )
+
+    floor = Floor(
+        building_id=building_id,
+        floor_number=data.floor_number,
+        name=data.name.strip(),
+        dimensions_width_m=data.dimensions_width_m,
+        dimensions_height_m=data.dimensions_height_m,
+        status="active",
+    )
+    db.add(floor)
+    await db.commit()
+    await db.refresh(floor)
+
+    await log_auth_audit_event(
+        db=db,
+        action="floor.created",
+        actor_id=current_user.id,
+        payload={
+            "floor_id": str(floor.id),
+            "building_id": str(building.id),
+            "name": floor.name,
+            "floor_number": floor.floor_number,
+        },
+        ip_address=ip_address,
+    )
+    return await get_floor_by_id(db, floor.id)
+
+
+async def update_floor(
+    db: AsyncSession,
+    floor_id: uuid.UUID,
+    data: FloorUpdate,
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> Floor:
+    """Update floor metadata or physical dimensions."""
+    floor = await get_floor_by_id(db, floor_id)
+
+    if data.floor_number is not None and data.floor_number != floor.floor_number:
+        existing = await db.execute(
+            select(Floor).where(
+                and_(
+                    Floor.building_id == floor.building_id,
+                    Floor.floor_number == data.floor_number,
+                    Floor.id != floor_id,
+                )
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Floor number {data.floor_number} already exists in this building",
+            )
+        floor.floor_number = data.floor_number
+
+    if data.name is not None:
+        floor.name = data.name.strip()
+    if data.dimensions_width_m is not None:
+        floor.dimensions_width_m = data.dimensions_width_m
+    if data.dimensions_height_m is not None:
+        floor.dimensions_height_m = data.dimensions_height_m
+    if data.status is not None:
+        floor.status = data.status
+
+    await db.commit()
+    await db.refresh(floor)
+
+    await log_auth_audit_event(
+        db=db,
+        action="floor.updated",
+        actor_id=current_user.id,
+        payload={"floor_id": str(floor.id), "name": floor.name},
+        ip_address=ip_address,
+    )
+    return await get_floor_by_id(db, floor.id)
+
+
+async def delete_floor(
+    db: AsyncSession,
+    floor_id: uuid.UUID,
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> None:
+    """Delete floor and cleanup plan files."""
+    floor = await get_floor_by_id(db, floor_id)
+    if floor.floor_plan:
+        _safe_remove_file(floor.floor_plan.file_path)
+
+    payload = {"floor_id": str(floor.id), "name": floor.name}
+    await db.delete(floor)
+    await db.commit()
+
+    await log_auth_audit_event(
+        db=db,
+        action="floor.deleted",
+        actor_id=current_user.id,
+        payload=payload,
+        ip_address=ip_address,
+    )
+
+
+# =========================================================================
+# Floor Plan Operations & Upload Validation
+# =========================================================================
+
+def _safe_remove_file(file_path: str) -> None:
+    """Removes a file from disk safely without raising exceptions if missing."""
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+    except Exception as e:
+        logger.warning("Could not remove floor plan file %s: %s", file_path, e)
+
+
+async def save_floor_plan(
+    db: AsyncSession,
+    floor_id: uuid.UUID,
+    file_bytes: bytes,
+    original_filename: str,
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> FloorPlanAsset:
+    """
+    Validates uploaded image file, checks bounds, saves with UUID filename
+    outside the public directory, and records or updates FloorPlanAsset.
+    """
+    floor = await get_floor_by_id(db, floor_id)
+
+    # 1. Check file size
+    file_size = len(file_bytes)
+    if file_size > settings.AIRGRID_MAX_UPLOAD_SIZE_BYTES:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail=f"File exceeds maximum allowed size of {settings.AIRGRID_MAX_UPLOAD_SIZE_BYTES // (1024 * 1024)}MB",
+        )
+    if file_size < 10:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="File is empty or corrupted",
+        )
+
+    # 2. Inspect with Pillow (MIME & magic bytes validation)
+    try:
+        image = Image.open(io.BytesIO(file_bytes))
+        image.verify()  # Verifies integrity without decoding entire image
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Uploaded file is not a valid image or is corrupted",
+        )
+
+    # Re-open after verify() closes the stream
+    image = Image.open(io.BytesIO(file_bytes))
+    image_format = (image.format or "").lower()
+    if image_format not in settings.AIRGRID_ALLOWED_IMAGE_FORMATS:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unsupported format '{image_format}'. Allowed formats: {', '.join(settings.AIRGRID_ALLOWED_IMAGE_FORMATS)}",
+        )
+
+    width, height = image.size
+    if width < 10 or height < 10 or width > 20000 or height > 20000:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Image dimensions ({width}x{height}) must be between 10x10 and 20000x20000 pixels",
+        )
+
+    # 3. Store file securely
+    upload_dir = get_secure_upload_dir()
+    safe_filename = f"{uuid.uuid4().hex}.{image_format}"
+    target_path = os.path.join(upload_dir, safe_filename)
+
+    # Ensure target path stays strictly inside upload_dir (path traversal guard)
+    if not os.path.abspath(target_path).startswith(upload_dir):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid file path configuration",
+        )
+
+    # Write file to disk
+    try:
+        with open(target_path, "wb") as f:
+            f.write(file_bytes)
+    except Exception as e:
+        logger.error("Failed to write floor plan file: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to persist floor plan to disk",
+        )
+
+    # 4. Check if floor already has a plan and replace
+    existing_plan_stmt = select(FloorPlanAsset).where(FloorPlanAsset.floor_id == floor_id)
+    res = await db.execute(existing_plan_stmt)
+    existing_plan = res.scalar_one_or_none()
+
+    # Default scale: calculate so image fits the floor's dimensions_width_m
+    initial_scale = round(width / max(floor.dimensions_width_m, 1.0), 2)
+
+    if existing_plan:
+        # Delete old file
+        _safe_remove_file(existing_plan.file_path)
+        existing_plan.file_path = target_path
+        existing_plan.file_format = image_format
+        existing_plan.original_filename = original_filename[:255] if original_filename else None
+        existing_plan.file_size_bytes = file_size
+        existing_plan.pixel_width = width
+        existing_plan.pixel_height = height
+        existing_plan.scale_pixels_per_meter = initial_scale
+        existing_plan.is_calibrated = False
+        existing_plan.calibration_metadata = None
+        plan_asset = existing_plan
+    else:
+        plan_asset = FloorPlanAsset(
+            floor_id=floor_id,
+            file_path=target_path,
+            file_format=image_format,
+            original_filename=original_filename[:255] if original_filename else None,
+            file_size_bytes=file_size,
+            pixel_width=width,
+            pixel_height=height,
+            scale_pixels_per_meter=initial_scale,
+            is_calibrated=False,
+            calibration_metadata=None,
+        )
+        db.add(plan_asset)
+
+    try:
+        await db.commit()
+        await db.refresh(plan_asset)
+    except Exception as e:
+        _safe_remove_file(target_path)
+        await db.rollback()
+        logger.error("Database error saving floor plan asset: %s", e)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to record floor plan in database",
+        )
+
+    await log_auth_audit_event(
+        db=db,
+        action="floor_plan.uploaded",
+        actor_id=current_user.id,
+        payload={
+            "plan_id": str(plan_asset.id),
+            "floor_id": str(floor.id),
+            "dimensions": f"{width}x{height}",
+            "filename": original_filename,
+        },
+        ip_address=ip_address,
+    )
+    return plan_asset
+
+
+async def get_floor_plan_by_id(db: AsyncSession, plan_id: uuid.UUID) -> FloorPlanAsset:
+    """Retrieve floor plan asset by UUID."""
+    stmt = (
+        select(FloorPlanAsset)
+        .where(FloorPlanAsset.id == plan_id)
+        .options(selectinload(FloorPlanAsset.floor).selectinload(Floor.building))
+    )
+    res = await db.execute(stmt)
+    plan = res.scalar_one_or_none()
+    if not plan:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Floor plan with id '{plan_id}' not found",
+        )
+    return plan
+
+
+async def calibrate_floor_plan(
+    db: AsyncSession,
+    plan_id: uuid.UUID,
+    data: CalibrationRequest,
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> FloorPlanAsset:
+    """
+    Computes pixels-per-meter scale from 2 user-selected points and real-world distance.
+    Persists calibration metadata and updates floor physical dimensions.
+    """
+    plan = await get_floor_plan_by_id(db, plan_id)
+    floor = await get_floor_by_id(db, plan.floor_id)
+
+    dx = data.point2.x - data.point1.x
+    dy = data.point2.y - data.point1.y
+    pixel_distance = math.sqrt(dx * dx + dy * dy)
+
+    if pixel_distance < 5.0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Calibration points must be at least 5 pixels apart",
+        )
+
+    # Calculate scale (pixels per meter)
+    scale_px_per_m = round(pixel_distance / data.distance_m, 4)
+    if scale_px_per_m <= 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Calculated scale is invalid",
+        )
+
+    # Update asset
+    plan.scale_pixels_per_meter = scale_px_per_m
+    plan.is_calibrated = True
+    plan.calibration_metadata = {
+        "point1": {"x": data.point1.x, "y": data.point1.y},
+        "point2": {"x": data.point2.x, "y": data.point2.y},
+        "pixel_distance": round(pixel_distance, 2),
+        "distance_m": data.distance_m,
+        "scale_pixels_per_meter": scale_px_per_m,
+    }
+
+    # Automatically recalculate floor physical dimensions based on image aspect and scale
+    new_width_m = round(plan.pixel_width / scale_px_per_m, 2)
+    new_height_m = round(plan.pixel_height / scale_px_per_m, 2)
+    floor.dimensions_width_m = new_width_m
+    floor.dimensions_height_m = new_height_m
+
+    plan_id_val = plan.id
+    floor_id_val = floor.id
+
+    await db.commit()
+
+    await log_auth_audit_event(
+        db=db,
+        action="floor_plan.calibrated",
+        actor_id=current_user.id,
+        payload={
+            "plan_id": str(plan_id_val),
+            "floor_id": str(floor_id_val),
+            "scale_pixels_per_meter": scale_px_per_m,
+            "distance_m": data.distance_m,
+        },
+        ip_address=ip_address,
+    )
+    return await get_floor_plan_by_id(db, plan_id_val)

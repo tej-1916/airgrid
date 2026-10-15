@@ -1,0 +1,418 @@
+import uuid
+from datetime import datetime
+from typing import Optional, List
+from sqlalchemy import (
+    String,
+    Integer,
+    Float,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Text,
+    Index,
+    JSON,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+from airgrid.models.base import Base, GUID, TimestampMixin
+
+
+# 1. Users
+class User(Base, TimestampMixin):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
+    full_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    role: Mapped[str] = mapped_column(String(50), default="observer", nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    audit_logs: Mapped[List["AuditLog"]] = relationship("AuditLog", back_populates="actor")
+    survey_sessions: Mapped[List["SurveySession"]] = relationship("SurveySession", back_populates="technician")
+    sessions: Mapped[List["UserSession"]] = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
+    speed_tests: Mapped[List["InternetSpeedTest"]] = relationship("InternetSpeedTest", back_populates="user")
+
+
+# 1.1 User Sessions
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    session_token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    is_revoked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    last_active_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship("User", back_populates="sessions")
+
+
+# 2. Audit Logs
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    actor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+    resource_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    resource_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+    actor: Mapped[Optional["User"]] = relationship("User", back_populates="audit_logs")
+
+
+# 3. Campuses
+class Campus(Base, TimestampMixin):
+    __tablename__ = "campuses"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    code: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)
+    latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    buildings: Mapped[List["Building"]] = relationship("Building", back_populates="campus", cascade="all, delete-orphan")
+
+
+# 4. Buildings
+class Building(Base, TimestampMixin):
+    __tablename__ = "buildings"
+    __table_args__ = (
+        UniqueConstraint("campus_id", "building_code", name="uq_buildings_campus_building_code"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    campus_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    building_code: Mapped[str] = mapped_column(String(50), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)
+    floors_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    campus: Mapped["Campus"] = relationship("Campus", back_populates="buildings")
+    floors: Mapped[List["Floor"]] = relationship("Floor", back_populates="building", cascade="all, delete-orphan")
+
+
+# 5. Floors
+class Floor(Base, TimestampMixin):
+    __tablename__ = "floors"
+    __table_args__ = (
+        UniqueConstraint("building_id", "floor_number", name="uq_floors_building_floor_number"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    building_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("buildings.id", ondelete="CASCADE"), nullable=False, index=True)
+    floor_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)
+    dimensions_width_m: Mapped[float] = mapped_column(Float, default=50.0, nullable=False)
+    dimensions_height_m: Mapped[float] = mapped_column(Float, default=30.0, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    building: Mapped["Building"] = relationship("Building", back_populates="floors")
+    floor_plan: Mapped[Optional["FloorPlanAsset"]] = relationship("FloorPlanAsset", back_populates="floor", uselist=False, cascade="all, delete-orphan")
+    access_points: Mapped[List["AccessPoint"]] = relationship("AccessPoint", back_populates="floor")
+    survey_sessions: Mapped[List["SurveySession"]] = relationship("SurveySession", back_populates="floor")
+
+
+# 6. Floor Plan Assets
+class FloorPlanAsset(Base, TimestampMixin):
+    __tablename__ = "floor_plan_assets"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    floor_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), unique=True, nullable=False)
+    file_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    file_format: Mapped[str] = mapped_column(String(20), nullable=False)
+    original_filename: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    file_size_bytes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    pixel_width: Mapped[int] = mapped_column(Integer, nullable=False)
+    pixel_height: Mapped[int] = mapped_column(Integer, nullable=False)
+    scale_pixels_per_meter: Mapped[float] = mapped_column(Float, default=20.0, nullable=False)
+    is_calibrated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    calibration_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    floor: Mapped["Floor"] = relationship("Floor", back_populates="floor_plan")
+
+
+# 7. Measurement Devices
+class MeasurementDevice(Base, TimestampMixin):
+    __tablename__ = "measurement_devices"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    device_fingerprint: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    device_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    device_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    os_info: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    is_authorized: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    survey_sessions: Mapped[List["SurveySession"]] = relationship("SurveySession", back_populates="device")
+    speed_tests: Mapped[List["InternetSpeedTest"]] = relationship("InternetSpeedTest", back_populates="device")
+
+
+# 8. Access Points
+class AccessPoint(Base, TimestampMixin):
+    __tablename__ = "access_points"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    floor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("floors.id", ondelete="SET NULL"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    mac_address: Mapped[str] = mapped_column(String(17), unique=True, index=True, nullable=False)
+    model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    vendor: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    x_coord: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    y_coord: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    channel_24ghz: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    channel_5ghz: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    tx_power_dbm: Mapped[float] = mapped_column(Float, default=20.0, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)
+
+    floor: Mapped[Optional["Floor"]] = relationship("Floor", back_populates="access_points")
+
+
+# 9. Survey Sessions
+class SurveySession(Base, TimestampMixin):
+    __tablename__ = "survey_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    floor_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), nullable=False, index=True)
+    technician_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    device_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("measurement_devices.id", ondelete="SET NULL"), nullable=True)
+    session_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(50), default="in_progress", nullable=False)
+
+    floor: Mapped["Floor"] = relationship("Floor", back_populates="survey_sessions")
+    technician: Mapped[Optional["User"]] = relationship("User", back_populates="survey_sessions")
+    device: Mapped[Optional["MeasurementDevice"]] = relationship("MeasurementDevice", back_populates="survey_sessions")
+    observations: Mapped[List["WiFiSignalObservation"]] = relationship("WiFiSignalObservation", back_populates="survey_session", cascade="all, delete-orphan")
+
+
+# 10. Wi-Fi Signal Observations
+class WiFiSignalObservation(Base):
+    __tablename__ = "wifi_signal_observations"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    survey_session_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("survey_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    floor_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), nullable=False, index=True)
+    bssid: Mapped[str] = mapped_column(String(17), nullable=False, index=True)
+    ssid: Mapped[str] = mapped_column(String(64), nullable=False)
+    rssi_dbm: Mapped[float] = mapped_column(Float, nullable=False)
+    frequency_mhz: Mapped[int] = mapped_column(Integer, nullable=False)
+    channel: Mapped[int] = mapped_column(Integer, nullable=False)
+    noise_dbm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    snr_db: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    x_coord: Mapped[float] = mapped_column(Float, nullable=False)
+    y_coord: Mapped[float] = mapped_column(Float, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    survey_session: Mapped["SurveySession"] = relationship("SurveySession", back_populates="observations")
+
+    __table_args__ = (
+        Index("ix_obs_floor_time", "floor_id", "observed_at"),
+    )
+
+
+# 11. Internet Speed Tests
+class InternetSpeedTest(Base):
+    __tablename__ = "internet_speed_tests"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    device_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("measurement_devices.id", ondelete="SET NULL"), nullable=True, index=True)
+    campus_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="SET NULL"), nullable=True, index=True)
+    building_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("buildings.id", ondelete="SET NULL"), nullable=True, index=True)
+    floor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("floors.id", ondelete="SET NULL"), nullable=True, index=True)
+    vantage_point: Mapped[str] = mapped_column(String(50), default="client_browser", nullable=False)
+    provider_engine: Mapped[str] = mapped_column(String(50), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="completed", nullable=False, index=True)
+    data_provenance: Mapped[str] = mapped_column(String(50), default="client_reported", nullable=False)
+    download_mbps: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    upload_mbps: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    latency_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    jitter_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    loaded_latency_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    packet_loss_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    server_location: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    client_ip_hashed: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    client_user_agent: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    quality_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    x_coord: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    y_coord: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    user: Mapped[Optional["User"]] = relationship("User", back_populates="speed_tests")
+    device: Mapped[Optional["MeasurementDevice"]] = relationship("MeasurementDevice", back_populates="speed_tests")
+    campus: Mapped[Optional["Campus"]] = relationship("Campus")
+    building: Mapped[Optional["Building"]] = relationship("Building")
+    floor: Mapped[Optional["Floor"]] = relationship("Floor")
+
+
+# 12. LAN Performance Tests
+class LANPerformanceTest(Base):
+    __tablename__ = "lan_performance_tests"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    device_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("measurement_devices.id", ondelete="SET NULL"), nullable=True, index=True)
+    floor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("floors.id", ondelete="SET NULL"), nullable=True)
+    target_host: Mapped[str] = mapped_column(String(255), nullable=False)
+    protocol: Mapped[str] = mapped_column(String(10), default="TCP", nullable=False)
+    throughput_mbps: Mapped[float] = mapped_column(Float, nullable=False)
+    jitter_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    retransmits: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+
+# 13. ML Models
+class MLModel(Base, TimestampMixin):
+    __tablename__ = "ml_models"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    model_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    model_version: Mapped[str] = mapped_column(String(50), nullable=False)
+    algorithm: Mapped[str] = mapped_column(String(100), nullable=False)
+    artifact_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    rmse_db: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    mae_db: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    r2_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    is_current_champion: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+# 14. AI Providers
+class AIProvider(Base, TimestampMixin):
+    __tablename__ = "ai_providers"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    base_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+    execution_records: Mapped[List["AIExecutionRecord"]] = relationship("AIExecutionRecord", back_populates="provider")
+
+
+# 15. AI Execution Records
+class AIExecutionRecord(Base):
+    __tablename__ = "ai_execution_records"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    provider_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("ai_providers.id", ondelete="SET NULL"), nullable=True)
+    request_id: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    prompt_category: Mapped[str] = mapped_column(String(50), nullable=False)
+    requested_model: Mapped[str] = mapped_column(String(100), nullable=False)
+    verified_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    is_verified_execution: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    fallback_detected: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    tokens_prompt: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    tokens_completion: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), nullable=False)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    provider: Mapped[Optional["AIProvider"]] = relationship("AIProvider", back_populates="execution_records")
+
+
+# 16. Automation Workflows
+class AutomationWorkflow(Base, TimestampMixin):
+    __tablename__ = "automation_workflows"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    event_trigger: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
+    webhook_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+
+
+# 17. System Events
+class SystemEvent(Base):
+    __tablename__ = "system_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    event_type: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
+    source: Mapped[str] = mapped_column(String(100), nullable=False)
+    payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    alerts: Mapped[List["Alert"]] = relationship("Alert", back_populates="event")
+
+
+# 18. Alerts
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    event_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("system_events.id", ondelete="SET NULL"), nullable=True)
+    severity: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="open", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    event: Mapped[Optional["SystemEvent"]] = relationship("SystemEvent", back_populates="alerts")
+    deliveries: Mapped[List["EmailDelivery"]] = relationship("EmailDelivery", back_populates="alert")
+
+
+# 19. Email Deliveries
+class EmailDelivery(Base):
+    __tablename__ = "email_deliveries"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    alert_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("alerts.id", ondelete="SET NULL"), nullable=True)
+    recipient_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    subject: Mapped[str] = mapped_column(String(255), nullable=False)
+    delivery_status: Mapped[str] = mapped_column(String(50), default="simulated", nullable=False)
+    provider_response_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    alert: Mapped[Optional["Alert"]] = relationship("Alert", back_populates="deliveries")
+
+
+# 20. AP Optimization Simulations
+class APOptimizationSimulation(Base):
+    __tablename__ = "ap_optimization_simulations"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    floor_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), nullable=False, index=True)
+    model_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("ml_models.id", ondelete="SET NULL"), nullable=True)
+    budget_ap_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    optimized_coverage_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    weak_zone_reduction_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    ap_coordinates_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

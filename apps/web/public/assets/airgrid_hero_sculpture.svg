@@ -1,0 +1,158 @@
+<svg viewBox="0 0 500 620" width="500" height="620" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGlow" x1="250" y1="100" x2="250" y2="500" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#BE6B37" stopOpacity="0.25" />
+      <stop offset="60%" stopColor="#BE6B37" stopOpacity="0.05" />
+      <stop offset="100%" stopColor="#0B0B0D" stopOpacity="0" />
+    </linearGradient>
+
+    <linearGradient id="obsidianPrimary" x1="120" y1="80" x2="380" y2="520" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#2E2E33" />
+      <stop offset="25%" stopColor="#141416" />
+      <stop offset="55%" stopColor="#0B0B0D" />
+      <stop offset="85%" stopColor="#18181C" />
+      <stop offset="100%" stopColor="#050507" />
+    </linearGradient>
+
+    <linearGradient id="obsidianHighlight" x1="170" y1="110" x2="270" y2="380" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#FFFFFF" stopOpacity="0.6" />
+      <stop offset="20%" stopColor="#FFFFFF" stopOpacity="0.1" />
+      <stop offset="60%" stopColor="#000000" stopOpacity="0.4" />
+      <stop offset="100%" stopColor="#FFFFFF" stopOpacity="0.05" />
+    </linearGradient>
+
+    <radialGradient id="copperCoreGlow" cx="50%" cy="45%" r="45%">
+      <stop offset="0%" stopColor="#FDBA74" stopOpacity="1" />
+      <stop offset="25%" stopColor="#E0864B" stopOpacity="0.85" />
+      <stop offset="60%" stopColor="#BE6B37" stopOpacity="0.5" />
+      <stop offset="90%" stopColor="#8A4018" stopOpacity="0.15" />
+      <stop offset="100%" stopColor="#BE6B37" stopOpacity="0" />
+    </radialGradient>
+
+    <linearGradient id="copperRimLight" x1="180" y1="180" x2="360" y2="360" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stopColor="#FED7AA" />
+      <stop offset="35%" stopColor="#EA580C" />
+      <stop offset="70%" stopColor="#BE6B37" />
+      <stop offset="100%" stopColor="#7C2D12" />
+    </linearGradient>
+
+    <filter id="glowEffect" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="8" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <filter id="softShadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="24" stdDeviation="28" flood-color="#000000" flood-opacity="0.35" />
+    </filter>
+  </defs>
+
+  <!-- Ambient Glow -->
+  <circle cx="250" cy="290" r="180" fill="url(#bgGlow)" filter="url(#glowEffect)" />
+
+  <!-- Concentric RF Wave Rings -->
+  <circle cx="250" cy="280" r="230" stroke="#BE6B37" stroke-opacity="0.15" stroke-width="1.2" stroke-dasharray="6 6" />
+  <circle cx="250" cy="280" r="190" stroke="#BE6B37" stroke-opacity="0.22" stroke-width="1.5" />
+  <circle cx="250" cy="280" r="150" stroke="#0B0B0D" stroke-opacity="0.3" stroke-width="1.2" stroke-dasharray="4 8" />
+
+  <g filter="url(#softShadow)">
+    <!-- Back Torus Ring (Depth Layer) -->
+    <path
+      d="M130 210C155 130 345 120 380 230C405 320 325 435 220 440C130 445 85 320 130 210Z"
+      fill="#09090C"
+      stroke="#27272F"
+      stroke-width="2.5"
+      opacity="0.95"
+    />
+
+    <!-- Glowing Copper Resonance Ring -->
+    <ellipse cx="250" cy="280" rx="145" ry="78" transform="rotate(-25 250 280)" stroke="url(#copperRimLight)" stroke-width="3.5" opacity="0.85" filter="url(#glowEffect)" />
+
+    <!-- Sculptural Monolith Base & Stem -->
+    <path
+      d="M185 450C190 380 210 330 230 270C240 240 260 240 270 270C290 330 310 380 315 450C318 495 285 540 250 540C215 540 182 495 185 450Z"
+      fill="url(#obsidianPrimary)"
+      stroke="#2C2C35"
+      stroke-width="2"
+    />
+
+    <!-- Central Sculptural Monolith (Obsidian Core) -->
+    <path
+      d="M250 85C285 155 365 240 355 345C345 440 295 490 250 500C205 490 155 440 145 345C135 240 215 155 250 85Z"
+      fill="url(#obsidianPrimary)"
+      stroke="#3A3A45"
+      stroke-width="2.5"
+    />
+
+    <!-- Specular Highlight (Catch-Light) -->
+    <path
+      d="M248 95C272 165 338 238 333 330C328 395 288 455 250 478C254 445 288 388 293 330C298 252 256 175 248 95Z"
+      fill="url(#obsidianHighlight)"
+    />
+
+    <!-- Illuminated Horizontal Copper Visor / RF Aperture -->
+    <g filter="url(#glowEffect)">
+      <ellipse cx="250" cy="275" rx="92" ry="34" fill="url(#copperCoreGlow)" />
+      <path
+        d="M170 275C192 258 308 258 330 275C312 288 188 288 170 275Z"
+        fill="#FFF7ED"
+        opacity="0.95"
+      />
+      <path
+        d="M188 275C210 264 290 264 312 275"
+        stroke="#FFEDD5"
+        stroke-width="4"
+        stroke-linecap="round"
+      />
+    </g>
+
+    <!-- Intersecting Gyroscope Rings (Front) -->
+    <ellipse
+      cx="250"
+      cy="275"
+      rx="168"
+      ry="78"
+      transform="rotate(25 250 275)"
+      fill="none"
+      stroke="url(#obsidianPrimary)"
+      stroke-width="10"
+    />
+    <ellipse
+      cx="250"
+      cy="275"
+      rx="168"
+      ry="78"
+      transform="rotate(25 250 275)"
+      fill="none"
+      stroke="#4E4E5C"
+      stroke-width="2"
+    />
+    <ellipse
+      cx="250"
+      cy="275"
+      rx="168"
+      ry="78"
+      transform="rotate(25 250 275)"
+      fill="none"
+      stroke="url(#copperRimLight)"
+      stroke-width="3.5"
+      stroke-dasharray="50 180"
+      stroke-dashoffset="25"
+      filter="url(#glowEffect)"
+    />
+  </g>
+
+  <!-- Constellation Signal Nodes -->
+  <circle cx="115" cy="185" r="4.5" fill="#BE6B37" filter="url(#glowEffect)" />
+  <circle cx="115" cy="185" r="2" fill="#FFFFFF" />
+  <line x1="115" y1="185" x2="175" y2="230" stroke="#BE6B37" stroke-opacity="0.4" stroke-width="1.5" stroke-dasharray="3 3" />
+
+  <circle cx="395" cy="215" r="5.5" fill="#BE6B37" filter="url(#glowEffect)" />
+  <circle cx="395" cy="215" r="2.5" fill="#FFFFFF" />
+  <line x1="395" y1="215" x2="335" y2="250" stroke="#BE6B37" stroke-opacity="0.4" stroke-width="1.5" stroke-dasharray="3 3" />
+
+  <circle cx="345" cy="425" r="4" fill="#0B0B0D" stroke="#BE6B37" stroke-width="2" />
+  <circle cx="155" cy="405" r="3.5" fill="#0B0B0D" stroke="#737373" stroke-width="1.5" />
+
+  <line x1="250" y1="35" x2="250" y2="85" stroke="#BE6B37" stroke-width="2" stroke-dasharray="4 4" opacity="0.8" />
+  <circle cx="250" cy="35" r="3.5" fill="#BE6B37" filter="url(#glowEffect)" />
+</svg>
