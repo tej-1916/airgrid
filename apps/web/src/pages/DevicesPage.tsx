@@ -624,8 +624,9 @@ export const DevicesPage: React.FC = () => {
             ) : (
               <form onSubmit={handleRegisterCollector} className="space-y-3.5 text-xs">
                 <div>
-                  <label className="block font-medium text-neutral-700 mb-1">Collector Name *</label>
+                  <label htmlFor="collector-name" className="block font-medium text-neutral-700 mb-1">Collector Name *</label>
                   <input
+                    id="collector-name"
                     type="text"
                     required
                     placeholder="e.g. Science Hall Survey Laptop"
@@ -636,8 +637,9 @@ export const DevicesPage: React.FC = () => {
                 </div>
 
                 <div>
-                  <label className="block font-medium text-neutral-700 mb-1">Host Label *</label>
+                  <label htmlFor="collector-host" className="block font-medium text-neutral-700 mb-1">Host Label *</label>
                   <input
+                    id="collector-host"
                     type="text"
                     required
                     placeholder="e.g. laptop-thinkpad-x1"

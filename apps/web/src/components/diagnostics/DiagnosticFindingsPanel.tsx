@@ -83,14 +83,14 @@ export const DiagnosticFindingsPanel: React.FC<DiagnosticFindingsPanelProps> = (
   return (
     <div className="bg-white rounded-2xl border border-[#D9DBDE] p-6 shadow-sm space-y-6">
       {/* Top Banner: Score & Headline */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-[#F5F5F3] border border-[#D9DBDE]">
-        <div className="flex items-center gap-4">
-          <div className={`px-4 py-3 rounded-2xl border flex flex-col items-center justify-center ${scoreColor}`}>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 sm:p-5 rounded-2xl bg-[#F5F5F3] border border-[#D9DBDE]">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+          <div className={`px-4 py-3 rounded-2xl border flex flex-col items-center justify-center self-start sm:self-auto ${scoreColor}`}>
             <span className="text-2xl font-bold font-mono">{overall_score}</span>
             <span className="text-[10px] font-semibold uppercase tracking-wider">Score</span>
           </div>
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className={`text-xs font-bold px-2 py-0.5 rounded-md border ${scoreColor}`}>
                 {scoreLabel}
               </span>
@@ -114,7 +114,7 @@ export const DiagnosticFindingsPanel: React.FC<DiagnosticFindingsPanelProps> = (
 
       {/* Filter Tabs & Counters */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#D9DBDE] pb-3">
-        <div className="flex items-center gap-1.5 text-xs">
+        <div className="flex flex-wrap items-center gap-1.5 text-xs">
           <Filter className="w-3.5 h-3.5 text-[#737373] mr-1" />
           <button
             onClick={() => setFilterSeverity('all')}
@@ -194,7 +194,7 @@ export const DiagnosticFindingsPanel: React.FC<DiagnosticFindingsPanelProps> = (
                   <h4 className="text-sm font-bold text-[#0B0B0D]">{finding.title}</h4>
                 </div>
                 <span className="text-[10px] font-mono text-[#737373] bg-[#F5F5F3] px-2 py-0.5 rounded border border-[#D9DBDE] self-start sm:self-auto">
-                  {finding.category.replace('_', ' ').toUpperCase()}
+                  {(finding.category || 'general').replace(/_/g, ' ').toUpperCase()}
                 </span>
               </div>
 
@@ -206,7 +206,7 @@ export const DiagnosticFindingsPanel: React.FC<DiagnosticFindingsPanelProps> = (
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-[#737373]">
                   Empirical Evidence:
                 </div>
-                <div className="text-xs font-mono text-[#0B0B0D]">
+                <div className="text-xs font-mono text-[#0B0B0D] break-words">
                   {finding.measured_evidence}
                 </div>
               </div>
@@ -214,7 +214,7 @@ export const DiagnosticFindingsPanel: React.FC<DiagnosticFindingsPanelProps> = (
               {/* Recommendation Box */}
               <div className="p-3 rounded-xl bg-[#BE6B37]/5 border border-[#BE6B37]/20 flex items-start gap-2.5">
                 <ArrowRight className="w-4 h-4 text-[#BE6B37] flex-shrink-0 mt-0.5" />
-                <div className="text-xs leading-relaxed text-[#0B0B0D]">
+                <div className="text-xs leading-relaxed text-[#0B0B0D] break-words">
                   <strong className="text-[#BE6B37]">Actionable Recommendation:</strong>{' '}
                   {finding.recommendation}
                 </div>

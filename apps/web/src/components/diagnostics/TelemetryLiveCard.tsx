@@ -88,15 +88,15 @@ export const TelemetryLiveCard: React.FC<TelemetryLiveCardProps> = ({
   const rssiPct = rssi !== null ? Math.max(0, Math.min(100, Math.round(((rssi - (-90)) / 60) * 100))) : 0;
 
   return (
-    <div className="bg-white rounded-2xl border border-[#D9DBDE] p-6 shadow-sm space-y-5">
+    <div className="bg-white rounded-2xl border border-[#D9DBDE] p-4 sm:p-6 shadow-sm space-y-5">
       {/* Top Bar: Connection & Provenance */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#D9DBDE]">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-center text-[#BE6B37]">
+          <div className="w-10 h-10 rounded-xl bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-center text-[#BE6B37] flex-shrink-0">
             <Wifi className="w-5 h-5" />
           </div>
           <div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <h3 className="text-base font-bold text-[#0B0B0D]">
                 {telemetry.ssid || 'Ad-Hoc / Disconnected'}
               </h3>
@@ -107,7 +107,7 @@ export const TelemetryLiveCard: React.FC<TelemetryLiveCardProps> = ({
                 </span>
               )}
             </div>
-            <p className="text-xs text-[#737373] mt-0.5 flex items-center gap-2">
+            <p className="text-xs text-[#737373] mt-0.5 flex flex-wrap items-center gap-2">
               <span>BSSID: <strong className="font-mono text-[#0B0B0D]">{telemetry.bssid || 'N/A'}</strong></span>
               <span>•</span>
               <span>Interface: <strong className="font-mono text-[#0B0B0D]">{telemetry.interface_name}</strong></span>

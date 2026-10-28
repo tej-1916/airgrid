@@ -190,10 +190,10 @@ export const NetworkDiagnosticsPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Top Header Card */}
-      <div className="bg-white rounded-2xl border border-[#D9DBDE] p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-white rounded-2xl border border-[#D9DBDE] p-4 sm:p-6 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold text-[#0B0B0D]">Real Wi-Fi Tools & Network Diagnostics</h1>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-lg sm:text-xl font-bold text-[#0B0B0D]">Real Wi-Fi Tools & Network Diagnostics</h1>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#BE6B37]/10 text-[#BE6B37] border border-[#BE6B37]/20 uppercase">
               Phase 06 Active
             </span>

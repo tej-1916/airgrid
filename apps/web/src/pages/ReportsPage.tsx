@@ -73,12 +73,13 @@ export const ReportsPage: React.FC = () => {
     setMessage(null);
     try {
       const [diagRes, surveyRes, planRes] = await Promise.all([
-        apiRequest<{ items: DiagnosticReport[] }>('/api/v1/diagnostics/reports?limit=50').catch(() => ({ items: [] })),
-        apiRequest<SurveySessionItem[]>('/api/v1/surveys/sessions').catch(() => []),
+        apiRequest<{ reports?: DiagnosticReport[]; items?: DiagnosticReport[] }>('/api/v1/diagnostics/reports?limit=50').catch(() => ({ reports: [] as DiagnosticReport[], items: [] as DiagnosticReport[] })),
+        apiRequest<{ items?: SurveySessionItem[]; sessions?: SurveySessionItem[] } | SurveySessionItem[]>('/api/v1/surveys?limit=100').catch(() => []),
         apiRequest<OptimizationPlanItem[]>('/api/v1/optimization/plans').catch(() => []),
       ]);
-      setDiagnosticReports(diagRes.items || []);
-      setSurveySessions(Array.isArray(surveyRes) ? surveyRes : []);
+      setDiagnosticReports(diagRes.reports || diagRes.items || []);
+      const sessionList = Array.isArray(surveyRes) ? surveyRes : (surveyRes?.items || surveyRes?.sessions || []);
+      setSurveySessions(sessionList);
       setPlans(Array.isArray(planRes) ? planRes : []);
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to load report archive.' });

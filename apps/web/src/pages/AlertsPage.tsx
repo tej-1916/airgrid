@@ -52,19 +52,20 @@ export const AlertsPage: React.FC = () => {
   const loadFindings = async () => {
     setLoading(true);
     try {
-      const data = await apiRequest<{ items: DiagnosticReportItem[] }>('/api/v1/diagnostics/reports?limit=50');
+      const data = await apiRequest<{ reports?: DiagnosticReportItem[]; items?: DiagnosticReportItem[] }>('/api/v1/diagnostics/reports?limit=50');
+      const reportList = data.reports || data.items || [];
       const aggregated: FindingWithContext[] = [];
-      for (const report of data.items || []) {
+      for (const report of reportList) {
         for (const f of report.findings || []) {
           aggregated.push({
-            id: f.id,
+            id: f.id || `${report.id}-${aggregated.length}`,
             report_id: report.id,
             report_title: report.title,
             created_at: report.created_at,
-            category: f.category,
+            category: f.category || 'general',
             severity: f.severity,
             title: f.title,
-            description: f.description,
+            description: f.description || '',
             measured_evidence: f.measured_evidence,
             recommendation: f.recommendation,
           });
