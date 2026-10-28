@@ -75,7 +75,7 @@ export const CollectorsPanel: React.FC<CollectorsProps> = ({ canAdmin, canAnalyz
       setLoading(true);
       const list = await diagnosticsService.listCollectors();
       setCollectors(list);
-      setSelected((cur) => cur || list[0]?.id || '');
+      setSelected((cur) => (list.some((c) => c.id === cur) ? cur : list[0]?.id || ''));
     } catch (e: any) {
       onError(e.message || 'Failed to load collectors.');
     } finally {
