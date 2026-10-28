@@ -34,11 +34,20 @@ LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 # so a party without the secret cannot exhaust a real collector's quota. Behind a proxy, run uvicorn
 # with --proxy-headers so request.client is the real client address.
 ingest_limiter = LoginRateLimiter(max_attempts=30, window_seconds=60)
-failure_limiter = LoginRateLimiter(max_attempts=20, window_seconds=300)
+failure_limiter = LoginRateLimiter(max_attempts=100, window_seconds=300)
+
+
+def _signing_key() -> bytes:
+    # Fail closed: with the public default key, a database dump would be enough to derive collector secrets.
+    key = settings.AIRGRID_SECRET_KEY
+    default = type(settings).model_fields["AIRGRID_SECRET_KEY"].default
+    if settings.AIRGRID_ENV.lower() != "testing" and (key == default or len(key) < 32):
+        raise HTTPException(status_code=503, detail="Collector credentials require a unique AIRGRID_SECRET_KEY of at least 32 characters.")
+    return key.encode()
 
 
 def derive_secret(collector_id: uuid.UUID, salt: str) -> str:
-    return hmac.new(settings.AIRGRID_SECRET_KEY.encode(), f"airgrid-collector:{collector_id}:{salt}".encode(),
+    return hmac.new(_signing_key(), f"airgrid-collector:{collector_id}:{salt}".encode(),
                     hashlib.sha256).hexdigest()
 
 
@@ -139,20 +148,18 @@ async def _reject(db: AsyncSession, collector: NetworkCollector, status_label: s
 
 async def authenticate(db: AsyncSession, request: Request, body: bytes) -> tuple[NetworkCollector, str]:
     """Returns (collector, nonce). Malformed or unknown credentials get the same generic 401."""
-    # Gate before any DB access, keyed on (source IP, claimed collector id): failed attempts against one
-    # collector id cannot throttle other collectors from the same address, and a valid signature never
-    # adds to the count. Tradeoff: a party on the same address who knows a collector's UUID can throttle
-    # that collector; deploy with real client IPs (uvicorn --proxy-headers) to keep addresses distinct.
-    claimed = request.headers.get("X-AirGrid-Collector", "")[:36]
-    key = f"{request.client.host if request.client else 'unknown'}:{claimed}"
+    # One coarse flood gate per source address, checked before any DB access. Only unauthenticated (401)
+    # outcomes count, so key holders never add to it. Tradeoff: a flood above the threshold from a shared
+    # address also delays a valid collector there; deploy with real client IPs (uvicorn --proxy-headers).
+    key = f"ip:{request.client.host if request.client else 'unknown'}"
     limited, retry_after = failure_limiter.is_rate_limited(key)
     if limited:
-        raise HTTPException(status_code=429, detail="Too many failed collector submissions; retry later.",
+        raise HTTPException(status_code=429, detail="Too many failed collector submissions from this address.",
                             headers={"Retry-After": str(retry_after)})
     try:
         return await _authenticate(db, request, body)
     except HTTPException as exc:
-        if exc.status_code in (401, 403, 409):
+        if exc.status_code == 401:
             failure_limiter.record_failure(key)
         raise
 

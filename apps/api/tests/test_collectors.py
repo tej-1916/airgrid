@@ -489,10 +489,13 @@ async def test_failed_signatures_do_not_consume_collector_quota(client, admin, r
     for _ in range(3):
         body, headers = signed(registered.id, "f" * 64, reading())
         codes.append((await client.post(INGEST, content=body, headers=headers)).status_code)
-    assert codes == [401, 401, 429]  # gated before any DB access once (IP, collector id) exceeds the limit
-    other = (await admin.post("/api/v1/collectors", json={"name": "Neighbour collector"})).json()
-    body, headers = signed(other["collector"]["id"], other["secret"], reading())
-    assert (await client.post(INGEST, content=body, headers=headers)).status_code == 201  # other collectors unaffected
+    assert codes == [401, 401, 429]  # flood gate trips before any DB access
+    # Replays/revocations by key holders (403/409) never count; other addresses are unaffected.
+    other = (await admin.post("/api/v1/collectors", json={"name": "Remote collector"})).json()
+    transport = ASGITransport(app=app, client=("198.51.100.20", 40000))
+    async with AsyncClient(transport=transport, base_url="https://testserver") as remote:
+        body, headers = signed(other["collector"]["id"], other["secret"], reading())
+        assert (await remote.post(INGEST, content=body, headers=headers)).status_code == 201
     async with AsyncSessionLocal() as s:
         collector = await s.get(NetworkCollector, uuid.UUID(registered.id))
         # Unauthenticated attempts bump the visible counter but never overwrite the last real status.
@@ -508,3 +511,18 @@ async def test_failed_attempts_do_not_spend_accepted_quota(client, registered, m
         assert (await client.post(INGEST, content=body, headers=headers)).status_code == 401
     body, headers = signed(registered.id, registered.secret, reading())
     assert (await client.post(INGEST, content=body, headers=headers)).status_code == 201
+
+
+def test_default_secret_key_fails_closed_outside_testing(monkeypatch):
+    from fastapi import HTTPException
+    from airgrid.core.config import Settings, settings
+    monkeypatch.setattr(settings, "AIRGRID_ENV", "production")
+    monkeypatch.setattr(settings, "AIRGRID_SECRET_KEY", Settings.model_fields["AIRGRID_SECRET_KEY"].default)
+    with pytest.raises(HTTPException) as exc:
+        collector_service.derive_secret(uuid.uuid4(), "salt")
+    assert exc.value.status_code == 503
+    monkeypatch.setattr(settings, "AIRGRID_SECRET_KEY", "short")
+    with pytest.raises(HTTPException):
+        collector_service.derive_secret(uuid.uuid4(), "salt")
+    monkeypatch.setattr(settings, "AIRGRID_SECRET_KEY", "x" * 48)
+    assert len(collector_service.derive_secret(uuid.uuid4(), "salt")) == 64
