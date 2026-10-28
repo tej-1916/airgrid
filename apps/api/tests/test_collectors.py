@@ -482,16 +482,29 @@ async def test_concurrent_snapshot_claim_loses_with_conflict(client, auth_client
 
 
 @pytest.mark.asyncio
-async def test_failed_signatures_do_not_consume_collector_quota(client, registered, monkeypatch):
+async def test_failed_signatures_do_not_consume_collector_quota(client, admin, registered, monkeypatch):
     monkeypatch.setattr(collector_service, "ingest_limiter", LoginRateLimiter(max_attempts=1, window_seconds=60))
     monkeypatch.setattr(collector_service, "failure_limiter", LoginRateLimiter(max_attempts=2, window_seconds=60))
     codes = []
     for _ in range(3):
         body, headers = signed(registered.id, "f" * 64, reading())
         codes.append((await client.post(INGEST, content=body, headers=headers)).status_code)
-    assert codes == [401, 429, 429]  # the address is throttled for unauthenticated attempts...
-    body, headers = signed(registered.id, registered.secret, reading())  # ...but a valid signature still gets through
-    assert (await client.post(INGEST, content=body, headers=headers)).status_code == 201
+    assert codes == [401, 401, 429]  # gated before any DB access once (IP, collector id) exceeds the limit
+    other = (await admin.post("/api/v1/collectors", json={"name": "Neighbour collector"})).json()
+    body, headers = signed(other["collector"]["id"], other["secret"], reading())
+    assert (await client.post(INGEST, content=body, headers=headers)).status_code == 201  # other collectors unaffected
     async with AsyncSessionLocal() as s:
         collector = await s.get(NetworkCollector, uuid.UUID(registered.id))
-        assert collector.rejected_count == 3 and collector.last_submission_status == "collected"
+        # Unauthenticated attempts bump the visible counter but never overwrite the last real status.
+        assert collector.rejected_count == 2 and collector.last_submission_status is None
+
+
+@pytest.mark.asyncio
+async def test_failed_attempts_do_not_spend_accepted_quota(client, registered, monkeypatch):
+    monkeypatch.setattr(collector_service, "ingest_limiter", LoginRateLimiter(max_attempts=1, window_seconds=60))
+    monkeypatch.setattr(collector_service, "failure_limiter", LoginRateLimiter(max_attempts=50, window_seconds=60))
+    for _ in range(3):
+        body, headers = signed(registered.id, "e" * 64, reading())
+        assert (await client.post(INGEST, content=body, headers=headers)).status_code == 401
+    body, headers = signed(registered.id, registered.secret, reading())
+    assert (await client.post(INGEST, content=body, headers=headers)).status_code == 201

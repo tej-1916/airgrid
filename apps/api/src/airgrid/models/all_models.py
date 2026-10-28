@@ -203,12 +203,16 @@ class AccessPoint(Base, TimestampMixin):
     mac_address: Mapped[str] = mapped_column(String(17), unique=True, nullable=False)
     model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     vendor: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    # Normalized floor-plan position (0..1), entered manually by an operator; never discovered.
     x_coord: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     y_coord: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     channel_24ghz: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     channel_5ghz: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    tx_power_dbm: Mapped[float] = mapped_column(Float, default=20.0, nullable=False)
+    # Unknown unless the operator records it; no default transmit power is assumed.
+    tx_power_dbm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
 
     floor: Mapped[Optional["Floor"]] = relationship("Floor", back_populates="access_points")
 
@@ -750,3 +754,27 @@ class AnalysisRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
     user: Mapped[Optional["User"]] = relationship("User")
+
+
+# 28. Persisted optimization plans (speculative AP markers; never applied to equipment)
+class OptimizationPlan(Base, TimestampMixin):
+    __tablename__ = "optimization_plans"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    campus_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="SET NULL"), nullable=True)
+    building_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("buildings.id", ondelete="SET NULL"), nullable=True)
+    floor_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), nullable=False, index=True)
+    network_label: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
+    markers: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    evidence_refs: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    author_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    author: Mapped[Optional["User"]] = relationship("User", foreign_keys=[author_id])

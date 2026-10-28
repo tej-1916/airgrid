@@ -139,19 +139,21 @@ async def _reject(db: AsyncSession, collector: NetworkCollector, status_label: s
 
 async def authenticate(db: AsyncSession, request: Request, body: bytes) -> tuple[NetworkCollector, str]:
     """Returns (collector, nonce). Malformed or unknown credentials get the same generic 401."""
-    # Verify first: a valid signature is never blocked by other traffic from the same address.
-    # Only unauthenticated outcomes (401) count against the source IP.
-    client_key = f"ip:{request.client.host if request.client else 'unknown'}"
+    # Gate before any DB access, keyed on (source IP, claimed collector id): failed attempts against one
+    # collector id cannot throttle other collectors from the same address, and a valid signature never
+    # adds to the count. Tradeoff: a party on the same address who knows a collector's UUID can throttle
+    # that collector; deploy with real client IPs (uvicorn --proxy-headers) to keep addresses distinct.
+    claimed = request.headers.get("X-AirGrid-Collector", "")[:36]
+    key = f"{request.client.host if request.client else 'unknown'}:{claimed}"
+    limited, retry_after = failure_limiter.is_rate_limited(key)
+    if limited:
+        raise HTTPException(status_code=429, detail="Too many failed collector submissions; retry later.",
+                            headers={"Retry-After": str(retry_after)})
     try:
         return await _authenticate(db, request, body)
     except HTTPException as exc:
-        if exc.status_code != 401:
-            raise
-        failure_limiter.record_failure(client_key)
-        limited, retry_after = failure_limiter.is_rate_limited(client_key)
-        if limited:
-            raise HTTPException(status_code=429, detail="Too many failed collector submissions from this address.",
-                                headers={"Retry-After": str(retry_after)})
+        if exc.status_code in (401, 403, 409):
+            failure_limiter.record_failure(key)
         raise
 
 
