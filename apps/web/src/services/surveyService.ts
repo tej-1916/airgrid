@@ -1,3 +1,4 @@
+import { TelemetrySnapshot } from '../types/diagnostics';
 import { apiRequest } from './api';
 import {
   SurveySession,
@@ -79,6 +80,17 @@ export const surveyService = {
   /**
    * Record a new measurement in a survey session.
    */
+  async placeableSnapshots(surveyId: string): Promise<TelemetrySnapshot[]> {
+    return apiRequest<TelemetrySnapshot[]>(`/api/v1/surveys/${surveyId}/placeable-snapshots`);
+  },
+
+  async placeSnapshot(surveyId: string, body: { telemetry_snapshot_id: string; position_x: number; position_y: number; notes?: string }): Promise<SurveyMeasurement> {
+    return apiRequest<SurveyMeasurement>(`/api/v1/surveys/${surveyId}/measurements/from-snapshot`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
+
   async addMeasurement(surveyId: string, payload: SurveyMeasurementCreatePayload): Promise<SurveyMeasurement> {
     return apiRequest<SurveyMeasurement>(`/api/v1/surveys/${surveyId}/measurements`, {
       method: 'POST',

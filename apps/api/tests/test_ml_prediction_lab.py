@@ -3,6 +3,7 @@ import os
 import uuid
 import pytest
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from airgrid.core.config import settings
 from airgrid.core.database import AsyncSessionLocal
@@ -405,6 +406,21 @@ async def test_ml_training_evaluation_and_baselines(client: AsyncClient, admin_a
     # Stored bytes must pass integrity validation before deserialization.
     prediction = await client.get(f"/api/v1/ml/models/{model_id}/prediction-map?grid_rows=10&grid_cols=10")
     assert prediction.status_code == 200
+
+    # A recalibrated floor plan is a different spatial frame: predictions must be refused until retraining.
+    async with AsyncSessionLocal() as session:
+        plan = (await session.execute(select(FloorPlanAsset).where(FloorPlanAsset.floor_id == floor_id))).scalar_one()
+        plan.scale_pixels_per_meter = 25.0
+        await session.commit()
+    prediction = await client.get(f"/api/v1/ml/models/{model_id}/prediction-map?grid_rows=10&grid_cols=10")
+    assert prediction.status_code == 409 and "retrain" in prediction.json()["detail"]
+    async with AsyncSessionLocal() as session:
+        plan = (await session.execute(select(FloorPlanAsset).where(FloorPlanAsset.floor_id == floor_id))).scalar_one()
+        plan.scale_pixels_per_meter = 20.0
+        await session.commit()
+    prediction = await client.get(f"/api/v1/ml/models/{model_id}/prediction-map?grid_rows=10&grid_cols=10")
+    assert prediction.status_code == 200
+
     with open(expected_path, "ab") as artifact:
         artifact.write(b"tampered fixture")
     prediction = await client.get(f"/api/v1/ml/models/{model_id}/prediction-map?grid_rows=10&grid_cols=10")

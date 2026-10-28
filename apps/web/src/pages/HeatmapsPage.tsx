@@ -27,6 +27,7 @@ import { SurveyAnalysisPanel } from '../components/survey/SurveyAnalysisPanel';
 import { SurveyHistoryModal } from '../components/survey/SurveyHistoryModal';
 import { SurveyComparisonModal } from '../components/survey/SurveyComparisonModal';
 import { SurveyCreateModal } from '../components/survey/SurveyCreateModal';
+import { TelemetrySnapshot } from '../types/diagnostics';
 
 export const HeatmapsPage: React.FC = () => {
   const { user } = useAuth();
@@ -63,6 +64,13 @@ export const HeatmapsPage: React.FC = () => {
 
   // Interactive coordinate placement state
   const [pendingClickCoords, setPendingClickCoords] = useState<{ x: number; y: number } | null>(null);
+  const [placeable, setPlaceable] = useState<TelemetrySnapshot[]>([]);
+
+  // Fresh instrument observations are offered whenever the operator selects a position.
+  useEffect(() => {
+    if (!pendingClickCoords || !activeSession) return;
+    surveyService.placeableSnapshots(activeSession.id).then(setPlaceable).catch(() => setPlaceable([]));
+  }, [pendingClickCoords, activeSession]);
 
   // Modals state
   const [createModalOpen, setCreateModalOpen] = useState<boolean>(false);
@@ -243,6 +251,20 @@ export const HeatmapsPage: React.FC = () => {
       setFeedbackMsg({ type: 'error', text: err.message || 'Failed to record measurement.' });
       throw err;
     }
+  };
+
+  // 6b. Place a stored instrument observation at the clicked position
+  const handlePlaceSnapshot = async (snapshotId: string, notes?: string) => {
+    if (!activeSession || !pendingClickCoords) return;
+    const placed = await surveyService.placeSnapshot(activeSession.id, {
+      telemetry_snapshot_id: snapshotId, position_x: pendingClickCoords.x, position_y: pendingClickCoords.y, notes,
+    });
+    setFeedbackMsg({ type: 'success', text: `Instrument observation (${placed.rssi_dbm} dBm) placed at (${placed.position_x}, ${placed.position_y}) px.` });
+    setPendingClickCoords(null);
+    const updatedSurvey = await surveyService.getSurvey(activeSession.id);
+    setActiveSession(updatedSurvey);
+    setMeasurements(updatedSurvey.measurements || []);
+    setStats(await surveyService.getSurveyAnalysis(activeSession.id));
   };
 
   // 7. Delete measurement
@@ -507,6 +529,8 @@ export const HeatmapsPage: React.FC = () => {
               onCancel={() => setPendingClickCoords(null)}
               scaleRatio={floorPlan?.scale_pixels_per_meter || 20.0}
               isCalibrated={floorPlan?.is_calibrated || false}
+              placeable={placeable}
+              onPlaceSnapshot={handlePlaceSnapshot}
             />
           )}
 

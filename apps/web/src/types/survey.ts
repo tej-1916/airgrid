@@ -18,6 +18,7 @@ export interface SurveyMeasurement {
   channel?: number | null;
   notes?: string | null;
   data_provenance: string;
+  source_telemetry_snapshot_id?: string | null;
   observed_at: string;
   created_at: string;
 }

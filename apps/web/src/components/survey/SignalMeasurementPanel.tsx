@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Radio, AlertCircle, Save, X, Wifi, ShieldAlert, Cpu } from 'lucide-react';
 import { MeasurementSource, SurveyMeasurementCreatePayload } from '../../types/survey';
 import { getSignalColor } from './SignalLegend';
+import { TelemetrySnapshot } from '../../types/diagnostics';
 
 interface SignalMeasurementPanelProps {
   floorId: string;
@@ -10,6 +11,8 @@ interface SignalMeasurementPanelProps {
   onCancel: () => void;
   scaleRatio?: number;
   isCalibrated?: boolean;
+  placeable?: TelemetrySnapshot[];
+  onPlaceSnapshot?: (snapshotId: string, notes?: string) => Promise<void>;
 }
 
 export const SignalMeasurementPanel: React.FC<SignalMeasurementPanelProps> = ({
@@ -19,7 +22,10 @@ export const SignalMeasurementPanel: React.FC<SignalMeasurementPanelProps> = ({
   onCancel,
   scaleRatio = 20.0,
   isCalibrated = false,
+  placeable = [],
+  onPlaceSnapshot,
 }) => {
+  const [snapshotId, setSnapshotId] = useState<string>('');
   const [rssiDbm, setRssiDbm] = useState<number>(-62);
   const [source, setSource] = useState<MeasurementSource>('manual_observation');
   const [networkLabel, setNetworkLabel] = useState<string>('');
@@ -115,6 +121,41 @@ export const SignalMeasurementPanel: React.FC<SignalMeasurementPanelProps> = ({
         <div className="p-2.5 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
           <AlertCircle className="w-4 h-4 shrink-0 text-rose-600" />
           <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {onPlaceSnapshot && placeable.length > 0 && (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 space-y-2">
+          <p className="text-xs font-semibold text-[#0B0B0D]">Place an instrument observation at this position</p>
+          <p className="text-[11px] text-[#525252]">
+            Use only if the observation was collected standing here. It is stored as instrument-verified evidence;
+            AirGrid never infers position from signal strength.
+          </p>
+          {isCalibrated ? (
+            <>
+              <select aria-label="Instrument observation" value={snapshotId} onChange={(e) => setSnapshotId(e.target.value)}
+                className="w-full text-xs bg-white border border-[#D9DBDE] rounded-lg px-2 py-1.5">
+                <option value="">Select a recent observation…</option>
+                {placeable.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {new Date(s.collected_at).toLocaleTimeString()} · {s.ssid} · {s.rssi_dbm} dBm · {s.vantage_point === 'registered_collector' ? 'collector' : 'backend host'}
+                  </option>
+                ))}
+              </select>
+              <button type="button" disabled={!snapshotId || saving}
+                onClick={async () => {
+                  try { setSaving(true); setErrorMsg(null); await onPlaceSnapshot(snapshotId, notes.trim() || undefined); }
+                  catch (err: any) { setErrorMsg(err.message || 'Failed to place observation.'); }
+                  finally { setSaving(false); }
+                }}
+                className="w-full rounded-lg bg-emerald-700 hover:bg-emerald-800 disabled:opacity-40 text-white text-xs font-semibold py-2">
+                Place instrument observation
+              </button>
+            </>
+          ) : (
+            <p className="text-[11px] text-amber-800">Calibrate this floor plan before placing instrument observations.</p>
+          )}
+          <p className="text-center text-[10px] text-[#737373]">— or enter a manual, operator-reported value below —</p>
         </div>
       )}
 

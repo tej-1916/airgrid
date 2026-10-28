@@ -15,6 +15,7 @@ from airgrid.schemas.survey import (
     SurveySessionUpdate,
     SurveyMeasurementCreate,
     SurveyMeasurementResponse,
+    SnapshotPlacementCreate,
     SurveySessionResponse,
     SurveySessionListResponse,
     SurveySummaryStats,
@@ -22,6 +23,8 @@ from airgrid.schemas.survey import (
     SurveyComparisonResponse,
 )
 from airgrid.services.survey_service import SurveyService
+from airgrid.services.diagnostic_service import snapshot_to_response
+from airgrid.schemas.diagnostics import TelemetrySnapshotResponse
 
 router = APIRouter(prefix="/surveys", tags=["Wi-Fi Surveys & Heatmaps"])
 
@@ -43,6 +46,7 @@ def _format_measurement(m: SurveyMeasurement) -> SurveyMeasurementResponse:
         channel=m.channel,
         notes=m.notes,
         data_provenance=m.data_provenance,
+        source_telemetry_snapshot_id=m.source_telemetry_snapshot_id,
         observed_at=m.observed_at,
         created_at=m.created_at,
     )
@@ -242,6 +246,37 @@ async def add_measurement(
         payload=payload,
         technician_id=current_user.id,
     )
+    return _format_measurement(measurement)
+
+
+@router.get(
+    "/{survey_id}/placeable-snapshots",
+    response_model=List[TelemetrySnapshotResponse],
+    summary="Recent instrument observations that can be placed on this survey",
+)
+async def list_placeable_snapshots(
+    survey_id: uuid.UUID = Path(..., description="Survey session UUID"),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_authenticated),
+):
+    return [snapshot_to_response(s) for s in await SurveyService.placeable_snapshots(db, survey_id)]
+
+
+@router.post(
+    "/{survey_id}/measurements/from-snapshot",
+    response_model=SurveyMeasurementResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Place a stored instrument observation at an operator-selected location",
+)
+async def place_instrument_snapshot(
+    payload: SnapshotPlacementCreate,
+    survey_id: uuid.UUID = Path(..., description="Survey session UUID"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_engineer_or_admin),
+    _: None = Depends(verify_csrf),
+):
+    """The only path that creates field_instrument_verified survey points."""
+    measurement = await SurveyService.place_snapshot(db, survey_id, payload, current_user.id)
     return _format_measurement(measurement)
 
 

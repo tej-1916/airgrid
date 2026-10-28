@@ -1,13 +1,14 @@
 import os
 import math
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Tuple, Dict, Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, func, and_, or_, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sqlalchemy.exc import IntegrityError
 
 from airgrid.models.all_models import (
     SurveySession,
@@ -18,6 +19,7 @@ from airgrid.models.all_models import (
     Campus,
     User,
     AuditLog,
+    NetworkTelemetrySnapshot,
 )
 from airgrid.schemas.survey import (
     SurveySessionCreate,
@@ -30,6 +32,10 @@ from airgrid.schemas.survey import (
     SurveyComparisonResponse,
 )
 
+
+
+INSTRUMENT_VANTAGES = {"registered_collector", "backend_server"}
+PLACEMENT_WINDOW_SECONDS = 15 * 60
 
 class SurveyService:
     @staticmethod
@@ -246,6 +252,11 @@ class SurveyService:
         res_dup = await db.execute(stmt_dup)
         existing_point = res_dup.scalar_one_or_none()
 
+        if existing_point and existing_point.source_telemetry_snapshot_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="An instrument-verified observation occupies this position; delete it before entering a manual value.",
+            )
         if existing_point:
             # Update existing observation at this position
             existing_point.rssi_dbm = payload.rssi_dbm
@@ -280,6 +291,84 @@ class SurveyService:
         )
         db.add(measurement)
         await db.commit()
+        await db.refresh(measurement)
+        return measurement
+
+    @staticmethod
+    async def placeable_snapshots(db: AsyncSession, session_id: uuid.UUID) -> List[NetworkTelemetrySnapshot]:
+        """Fresh, complete, unplaced instrument observations for this floor (or unscoped collectors)."""
+        session = await SurveyService.get_survey_session(db, session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail=f"Survey session '{session_id}' not found.")
+        cutoff = datetime.now(timezone.utc) - timedelta(seconds=PLACEMENT_WINDOW_SECONDS)
+        S = NetworkTelemetrySnapshot
+        result = await db.execute(select(S).where(
+            S.collected_at >= cutoff, S.data_provenance == "instrumented_linux_telemetry",
+            S.vantage_point.in_(INSTRUMENT_VANTAGES), S.collection_status == "collected",
+            S.rssi_dbm.is_not(None), S.ssid.is_not(None),
+            or_(S.floor_id == session.floor_id, S.floor_id.is_(None)),
+            ~select(SurveyMeasurement.id).where(SurveyMeasurement.source_telemetry_snapshot_id == S.id).exists(),
+        ).order_by(S.collected_at.desc()).limit(20))
+        return list(result.scalars())
+
+    @staticmethod
+    async def place_snapshot(db: AsyncSession, session_id: uuid.UUID, payload, technician_id: uuid.UUID) -> SurveyMeasurement:
+        """Link one stored, server-owned instrument snapshot to an operator-chosen calibrated position.
+
+        Location is never inferred from signal strength or browser APIs: the operator places it.
+        """
+        session = await SurveyService.get_survey_session(db, session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail=f"Survey session '{session_id}' not found.")
+        if session.status == "archived":
+            raise HTTPException(status_code=400, detail="Cannot add measurements to an archived survey session.")
+        snapshot = await db.get(NetworkTelemetrySnapshot, payload.telemetry_snapshot_id)
+        if not snapshot:
+            raise HTTPException(status_code=404, detail="Telemetry snapshot not found.")
+        if (snapshot.data_provenance != "instrumented_linux_telemetry"
+                or snapshot.vantage_point not in INSTRUMENT_VANTAGES):
+            raise HTTPException(status_code=422, detail="Only server-collected or registered-collector observations can be placed.")
+        if snapshot.collection_status != "collected" or snapshot.rssi_dbm is None or not snapshot.ssid:
+            raise HTTPException(status_code=422, detail="The observation lacks a complete RSSI and network identity.")
+        if snapshot.floor_id and snapshot.floor_id != session.floor_id:
+            raise HTTPException(status_code=422, detail="The observation was attributed to a different floor.")
+        collected = snapshot.collected_at if snapshot.collected_at.tzinfo else snapshot.collected_at.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - collected).total_seconds()
+        if age > PLACEMENT_WINDOW_SECONDS:
+            raise HTTPException(status_code=422, detail="Place observations within 15 minutes of collection so the position reflects where it was measured.")
+        linked = await db.execute(select(SurveyMeasurement.id).where(SurveyMeasurement.source_telemetry_snapshot_id == snapshot.id))
+        if linked.first():
+            raise HTTPException(status_code=409, detail="This observation is already placed on a survey.")
+        plan = (await db.execute(select(FloorPlanAsset).where(FloorPlanAsset.floor_id == session.floor_id))).scalar_one_or_none()
+        if not plan or not plan.is_calibrated or not plan.scale_pixels_per_meter or plan.scale_pixels_per_meter <= 0:
+            raise HTTPException(status_code=422, detail="A calibrated floor plan is required before placing instrument observations.")
+        if payload.position_x > plan.pixel_width or payload.position_y > plan.pixel_height:
+            raise HTTPException(status_code=422, detail="Position exceeds floor plan bounds.")
+        occupied = await db.execute(select(SurveyMeasurement.id).where(
+            SurveyMeasurement.survey_session_id == session_id,
+            func.abs(SurveyMeasurement.position_x - payload.position_x) < 0.5,
+            func.abs(SurveyMeasurement.position_y - payload.position_y) < 0.5))
+        if occupied.first():
+            raise HTTPException(status_code=409, detail="A survey point already exists at this position.")
+        measurement = SurveyMeasurement(
+            survey_session_id=session_id, floor_id=session.floor_id,
+            position_x=payload.position_x, position_y=payload.position_y,
+            normalized_x=payload.position_x / plan.pixel_width, normalized_y=payload.position_y / plan.pixel_height,
+            rssi_dbm=snapshot.rssi_dbm, network_label=snapshot.ssid, ap_reference=snapshot.bssid,
+            frequency_mhz=snapshot.frequency_mhz, channel=snapshot.channel, notes=payload.notes,
+            measurement_source=snapshot.vantage_point, data_provenance="field_instrument_verified",
+            source_telemetry_snapshot_id=snapshot.id, observed_at=collected,
+        )
+        db.add(measurement)
+        db.add(AuditLog(actor_id=technician_id, action="survey.instrument_point_placed", resource_type="survey_measurements",
+                        resource_id=str(session_id), payload={"telemetry_snapshot_id": str(snapshot.id),
+                                                              "collector_id": str(snapshot.collector_id) if snapshot.collector_id else None}))
+        try:
+            await db.commit()
+        except IntegrityError:
+            # Unique source_telemetry_snapshot_id: a concurrent placement of the same snapshot.
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="This observation is already placed on a survey.")
         await db.refresh(measurement)
         return measurement
 

@@ -29,8 +29,12 @@ NONCE_RE = re.compile(r"^[A-Za-z0-9_-]{16,64}$")
 SIGNATURE_RE = re.compile(r"^[0-9a-f]{64}$")
 LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
 
-# ponytail: per-process sliding window; use a shared store before running multiple API workers.
+# ponytail: per-process sliding windows; use a shared store before running multiple API workers.
+# Accepted submissions count against the authenticated collector; failures count against the source IP,
+# so a party without the secret cannot exhaust a real collector's quota. Behind a proxy, run uvicorn
+# with --proxy-headers so request.client is the real client address.
 ingest_limiter = LoginRateLimiter(max_attempts=30, window_seconds=60)
+failure_limiter = LoginRateLimiter(max_attempts=20, window_seconds=300)
 
 
 def derive_secret(collector_id: uuid.UUID, salt: str) -> str:
@@ -135,6 +139,20 @@ async def _reject(db: AsyncSession, collector: NetworkCollector, status_label: s
 
 async def authenticate(db: AsyncSession, request: Request, body: bytes) -> tuple[NetworkCollector, str]:
     """Returns (collector, nonce). Malformed or unknown credentials get the same generic 401."""
+    client_key = f"ip:{request.client.host if request.client else 'unknown'}"
+    limited, retry_after = failure_limiter.is_rate_limited(client_key)
+    if limited:
+        raise HTTPException(status_code=429, detail="Too many failed collector submissions from this address.",
+                            headers={"Retry-After": str(retry_after)})
+    try:
+        return await _authenticate(db, request, body)
+    except HTTPException as exc:
+        if exc.status_code in (401, 403, 409):
+            failure_limiter.record_failure(client_key)
+        raise
+
+
+async def _authenticate(db: AsyncSession, request: Request, body: bytes) -> tuple[NetworkCollector, str]:
     failed = HTTPException(status_code=401, detail="Collector authentication failed.")
     h = request.headers
     nonce, signature = h.get("X-AirGrid-Nonce", ""), h.get("X-AirGrid-Signature", "")
@@ -146,13 +164,6 @@ async def authenticate(db: AsyncSession, request: Request, body: bytes) -> tuple
     if not NONCE_RE.fullmatch(nonce) or not SIGNATURE_RE.fullmatch(signature):
         raise failed
 
-    key = f"{collector_id}:{request.client.host if request.client else 'unknown'}"
-    limited, retry_after = ingest_limiter.is_rate_limited(key)
-    if limited:
-        raise HTTPException(status_code=429, detail="Collector submission rate exceeded.",
-                            headers={"Retry-After": str(retry_after)})
-    ingest_limiter.record_failure(key)  # the window counts every attempt, not only failures
-
     if abs(time.time() - timestamp) > TIMESTAMP_WINDOW_SECONDS:
         raise HTTPException(status_code=401, detail="Collector request timestamp is outside the accepted window; check host clock.")
     collector = await db.get(NetworkCollector, collector_id)
@@ -160,7 +171,9 @@ async def authenticate(db: AsyncSession, request: Request, body: bytes) -> tuple
         raise failed
     expected = sign_submission(derive_secret(collector.id, collector.secret_salt), str(collector.id), timestamp, nonce, body)
     if not hmac.compare_digest(expected, signature):
-        await _reject(db, collector, "rejected_signature")
+        # Unauthenticated: bump the visible counter only; never overwrite the collector's last status.
+        collector.rejected_count += 1
+        await db.commit()
         raise failed
     # Revocation is disclosed only to holders of a once-valid secret.
     if collector.status != "active":
@@ -171,6 +184,11 @@ async def authenticate(db: AsyncSession, request: Request, body: bytes) -> tuple
     if exists.first():
         await _reject(db, collector, "rejected_replay")
         raise HTTPException(status_code=409, detail="Replayed submission rejected.")
+    limited, retry_after = ingest_limiter.is_rate_limited(str(collector.id))
+    if limited:
+        raise HTTPException(status_code=429, detail="Collector submission rate exceeded.",
+                            headers={"Retry-After": str(retry_after)})
+    ingest_limiter.record_failure(str(collector.id))  # counts accepted attempts for this collector
     return collector, nonce
 
 

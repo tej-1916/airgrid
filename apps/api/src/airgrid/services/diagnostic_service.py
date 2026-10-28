@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, func, desc, update
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import HTTPException, status
@@ -393,7 +393,15 @@ class DiagnosticService:
 
         # 5. Link the server-owned snapshot, or persist the collected/supplied one
         if stored_snapshot is not None:
-            stored_snapshot.report_id = report.id
+            # Atomic claim: a concurrent analysis of the same snapshot loses with 409.
+            claimed = await db.execute(
+                update(NetworkTelemetrySnapshot)
+                .where(NetworkTelemetrySnapshot.id == stored_snapshot.id, NetworkTelemetrySnapshot.report_id.is_(None))
+                .values(report_id=report.id)
+                .execution_options(synchronize_session=False))
+            if claimed.rowcount != 1:
+                await db.rollback()
+                raise HTTPException(status_code=409, detail="Snapshot was analyzed concurrently; open the existing report.")
         else:
             db.add(snapshot_entity(telemetry, report.id, current_user.id, req))
 

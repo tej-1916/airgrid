@@ -53,10 +53,20 @@ class SurveyMeasurementResponse(BaseModel):
     channel: Optional[int] = None
     notes: Optional[str] = None
     data_provenance: str
+    source_telemetry_snapshot_id: Optional[uuid.UUID] = None
     observed_at: datetime
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SnapshotPlacementCreate(BaseModel):
+    """Operator places a stored instrument observation at the location where it was collected."""
+    model_config = ConfigDict(extra="forbid")
+    telemetry_snapshot_id: uuid.UUID
+    position_x: float = Field(..., ge=0)
+    position_y: float = Field(..., ge=0)
+    notes: Optional[str] = Field(default=None, max_length=1000)
 
 
 class SurveySessionResponse(BaseModel):

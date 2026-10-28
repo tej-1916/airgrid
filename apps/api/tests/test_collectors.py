@@ -370,3 +370,126 @@ def test_agent_build_submission_never_invents_values():
     assert "bssid" not in partial and "rssi_dbm" not in partial
     full = agent.build_submission({"interface_name": "wlx0", "rssi_dbm": -55.0, "bssid": "02:00:00:00:00:01", "band": "5 GHz"})
     assert full["collection_status"] == "collected" and full["rssi_dbm"] == -55.0
+
+
+# --- Instrument evidence placed on calibrated survey locations (Phase 05 integration) -------
+
+async def calibrated_survey(scope, calibrated=True):
+    from airgrid.models.all_models import FloorPlanAsset, SurveySession
+    async with AsyncSessionLocal() as s:
+        s.add(FloorPlanAsset(floor_id=scope.floor, file_path="data/test_plans/fixture.png", file_format="png",
+                             pixel_width=1000, pixel_height=600, scale_pixels_per_meter=20.0, is_calibrated=calibrated))
+        session = SurveySession(floor_id=scope.floor, building_id=scope.building, campus_id=scope.campus,
+                                session_name="Fixture instrument walk")
+        s.add(session)
+        await s.commit()
+        return session.id
+
+
+@pytest.mark.asyncio
+async def test_operator_places_collector_snapshot_as_instrument_point(client, auth_client, registered):
+    survey_id = await calibrated_survey(registered.scope)
+    body, headers = signed(registered.id, registered.secret, reading())
+    snapshot_id = (await client.post(INGEST, content=body, headers=headers)).json()["snapshot_id"]
+    engineer, viewer = await auth_client("network_engineer"), await auth_client("viewer")
+    placeable = (await viewer.get(f"/api/v1/surveys/{survey_id}/placeable-snapshots")).json()
+    assert snapshot_id in [p["id"] for p in placeable]
+    url = f"/api/v1/surveys/{survey_id}/measurements/from-snapshot"
+    placement = {"telemetry_snapshot_id": snapshot_id, "position_x": 250, "position_y": 300}
+    assert (await viewer.post(url, json=placement)).status_code == 403
+    res = await engineer.post(url, json=placement)
+    assert res.status_code == 201, res.text
+    point = res.json()
+    assert point["data_provenance"] == "field_instrument_verified"
+    assert point["measurement_source"] == "registered_collector"
+    assert point["source_telemetry_snapshot_id"] == snapshot_id
+    assert point["rssi_dbm"] == -61.0 and point["network_label"] == "Fixture-Net"
+    assert point["normalized_x"] == 0.25 and point["normalized_y"] == 0.5
+
+    assert (await engineer.post(url, json={**placement, "position_x": 10})).status_code == 409  # one snapshot, one point
+    assert snapshot_id not in [p["id"] for p in (await viewer.get(f"/api/v1/surveys/{survey_id}/placeable-snapshots")).json()]
+    manual = {"floor_id": str(registered.scope.floor), "position_x": 250, "position_y": 300, "rssi_dbm": -40,
+              "network_label": "Fixture-Net"}
+    assert (await engineer.post(f"/api/v1/surveys/{survey_id}/measurements", json=manual)).status_code == 409
+
+    readiness = (await engineer.get(f"/api/v1/ml/readiness?floor_id={registered.scope.floor}&network_label=Fixture-Net")).json()
+    assert readiness["summary"]["genuine_measurements"] == 1  # counted; manual entries never are
+
+    # Retention must not delete a snapshot that backs a survey point.
+    async with AsyncSessionLocal() as s:
+        from airgrid.services.telemetry_history import _eligible_filter
+        far_future = datetime.now(timezone.utc) + timedelta(days=1)
+        ids = (await s.execute(select(NetworkTelemetrySnapshot.id).where(_eligible_filter(far_future)))).scalars().all()
+        assert uuid.UUID(snapshot_id) not in ids
+
+
+@pytest.mark.asyncio
+async def test_placement_rejects_unsafe_evidence(client, auth_client, registered):
+    engineer = await auth_client("network_engineer")
+    survey_id = await calibrated_survey(registered.scope)
+    url = f"/api/v1/surveys/{survey_id}/measurements/from-snapshot"
+
+    async def stored(**fields):
+        async with AsyncSessionLocal() as s:
+            values = {"interface_name": "fixture0", "ssid": "Fixture-Net", "rssi_dbm": -66.0,
+                      "vantage_point": "registered_collector", "data_provenance": "instrumented_linux_telemetry",
+                      "collected_at": datetime.now(timezone.utc), **fields}
+            snap = NetworkTelemetrySnapshot(**values)
+            s.add(snap)
+            await s.commit()
+            return str(snap.id)
+
+    other = await make_floor()
+    cases = {
+        "stale": await stored(collected_at=datetime.now(timezone.utc) - timedelta(minutes=30)),
+        "other_floor": await stored(floor_id=other.floor),
+        "operator_reported": await stored(data_provenance="operator_reported", vantage_point="operator_supplied"),
+        "no_network": await stored(ssid=None),
+        "failed": await stored(collection_status="failed", rssi_dbm=None),
+    }
+    for name, snapshot_id in cases.items():
+        res = await engineer.post(url, json={"telemetry_snapshot_id": snapshot_id, "position_x": 100, "position_y": 100})
+        assert res.status_code == 422, name
+
+    uncalibrated_scope = await make_floor()
+    uncalibrated = await calibrated_survey(uncalibrated_scope, calibrated=False)
+    res = await engineer.post(f"/api/v1/surveys/{uncalibrated}/measurements/from-snapshot",
+                              json={"telemetry_snapshot_id": await stored(), "position_x": 1, "position_y": 1})
+    assert res.status_code == 422 and "calibrated" in res.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_snapshot_claim_loses_with_conflict(client, auth_client, registered, monkeypatch):
+    from airgrid.services.diagnostic_service import diagnostic_service
+    body, headers = signed(registered.id, registered.secret, reading())
+    snapshot_id = uuid.UUID((await client.post(INGEST, content=body, headers=headers)).json()["snapshot_id"])
+    original = diagnostic_service._load_unreported_snapshot
+
+    async def racing_load(db, req):
+        snapshot = await original(db, req)
+        async with AsyncSessionLocal() as other:  # another request claims it after our check
+            report = NetworkDiagnosticReport(title="concurrent", interface_name="fixture0", summary_headline="x")
+            other.add(report)
+            await other.flush()
+            (await other.get(NetworkTelemetrySnapshot, snapshot_id)).report_id = report.id
+            await other.commit()
+        return snapshot
+
+    monkeypatch.setattr(diagnostic_service, "_load_unreported_snapshot", racing_load)
+    engineer = await auth_client("network_engineer")
+    res = await engineer.post("/api/v1/diagnostics/analyze", json={"telemetry_snapshot_id": str(snapshot_id), "operator_consent": True})
+    assert res.status_code == 409
+
+
+@pytest.mark.asyncio
+async def test_failed_signatures_do_not_consume_collector_quota(client, registered, monkeypatch):
+    monkeypatch.setattr(collector_service, "ingest_limiter", LoginRateLimiter(max_attempts=1, window_seconds=60))
+    monkeypatch.setattr(collector_service, "failure_limiter", LoginRateLimiter(max_attempts=50, window_seconds=60))
+    for _ in range(3):
+        body, headers = signed(registered.id, "f" * 64, reading())
+        assert (await client.post(INGEST, content=body, headers=headers)).status_code == 401
+    body, headers = signed(registered.id, registered.secret, reading())
+    assert (await client.post(INGEST, content=body, headers=headers)).status_code == 201
+    async with AsyncSessionLocal() as s:
+        collector = await s.get(NetworkCollector, uuid.UUID(registered.id))
+        assert collector.rejected_count == 3 and collector.last_submission_status == "collected"

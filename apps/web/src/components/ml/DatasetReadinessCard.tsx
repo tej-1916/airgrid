@@ -99,6 +99,28 @@ export const DatasetReadinessCard: React.FC<DatasetReadinessCardProps> = ({
         </div>
       </div>
 
+      {/* Actual counts by source: only instrument-verified points are training-eligible */}
+      {(() => {
+        const total = Number(readiness.summary?.total_measurements ?? 0);
+        const instrument = Number(readiness.summary?.genuine_measurements ?? 0);
+        const imports = Number(readiness.summary?.test_import_measurements ?? 0);
+        const other = Math.max(0, total - instrument - imports);
+        return (
+          <div className="space-y-2">
+            <div className="flex flex-wrap gap-2 text-[11px]" aria-label="Measurement counts by source">
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-emerald-800">Instrument-verified (eligible): <strong>{instrument}</strong></span>
+              <span className="rounded-full border border-[#D9DBDE] bg-[#F5F5F3] px-2.5 py-1 text-[#525252]">Operator-reported / other (excluded): <strong>{other}</strong></span>
+              <span className="rounded-full border border-[#D9DBDE] bg-[#F5F5F3] px-2.5 py-1 text-[#525252]">Controlled test imports (excluded): <strong>{imports}</strong></span>
+            </div>
+            <p className="text-[11px] text-[#737373]">
+              Instrument-verified points are created only by placing a fresh observation from a registered collector (or the
+              consented backend host) on a calibrated floor plan in the Survey Studio. Manual entries, imports, IDW estimates
+              and model predictions never become training data.
+            </p>
+          </div>
+        );
+      })()}
+
       {/* Structured Checklist Table */}
       <div className="overflow-hidden rounded-xl border border-[#D9DBDE]">
         <table className="w-full text-left text-xs">

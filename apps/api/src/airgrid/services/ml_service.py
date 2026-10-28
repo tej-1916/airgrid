@@ -50,6 +50,15 @@ from airgrid.schemas.ml import (
 )
 
 
+
+def floor_plan_signature(floor_id, building_id, plan) -> Optional[str]:
+    """Identifies the spatial frame a model was trained in; any plan/calibration change alters it."""
+    if plan is None:
+        return None
+    frame = [str(floor_id), str(building_id), str(plan.id), plan.file_path, plan.pixel_width, plan.pixel_height,
+             plan.scale_pixels_per_meter, plan.is_calibrated, plan.calibration_metadata]
+    return hashlib.sha256(json.dumps(frame, sort_keys=True, default=str).encode()).hexdigest()
+
 class MLService:
     SUPPORTED_ALGORITHMS = [
         MLAlgorithmInfo(
@@ -655,6 +664,7 @@ class MLService:
         os.chmod(artifact_path, 0o600)
         hyperparams["artifact_sha256"] = hashlib.sha256(Path(artifact_path).read_bytes()).hexdigest()
         hyperparams["sklearn_version"] = sklearn.__version__
+        hyperparams["floor_plan_signature"] = floor_plan_signature(floor_id, floor.building_id, plan)
 
         # Determine champion status
         # If no other champion exists on this floor and network, make this the champion.
@@ -1056,6 +1066,14 @@ class MLService:
         stmt_plan = select(FloorPlanAsset).where(FloorPlanAsset.floor_id == m.floor_id)
         res_plan = await db.execute(stmt_plan)
         plan = res_plan.scalar_one_or_none()
+
+        expected_signature = m.hyperparameters.get("floor_plan_signature")
+        if not expected_signature or expected_signature != floor_plan_signature(m.floor_id, (await db.get(Floor, m.floor_id)).building_id, plan):
+            raise HTTPException(
+                status_code=409,
+                detail="Floor plan, calibration or floor placement changed since this model was trained (or the model predates "
+                       "plan versioning); retrain before predicting on this floor.",
+            )
 
         if plan and plan.pixel_width > 0 and plan.pixel_height > 0:
             width_px = plan.pixel_width
