@@ -305,3 +305,15 @@ Record of outbound emails triggered via n8n or platform notification workers.
    - Retained indefinitely in append-only tables for compliance and model evaluation drift tracking.
 3. **`speed_tests`:**
    - Retained for 365 days, then summarized into monthly 95th percentile metrics.
+
+
+## 4. Current schema additions (migrations 0008–0011, 2026-10-28)
+
+All additive; head `0011_optimization_plans`; `alembic check` clean.
+
+- **0008** — models now name indexes as migrations 0001–0007 created them; adds `ix_ai_execution_records_executed_at`, `ix_internet_speed_tests_floor_id`, `ix_lan_performance_tests_device_id`, `ix_lan_performance_tests_executed_at`, `ix_wifi_signal_observations_survey_session_id`.
+- **0009** — `network_collectors` (name, host label, campus/building/floor scope, status, `secret_salt`, creator, revocation, last seen/status, accepted/rejected counts); `network_telemetry_snapshots` gains `collector_id`, `submission_nonce` (unique with collector), `collection_status`, `collection_error`, `connection_state`; `survey_measurements.source_telemetry_snapshot_id` (unique, SET NULL); `data_retention_policies` (dataset PK, retention days, aggregate flag); `telemetry_daily_aggregates` (collector, floor, vantage, provenance, day, sample count, metrics JSON of count/sum/min/max).
+- **0010** — `analysis_records` (kind, question, scope, evidence refs, freshness, mode, gateway status, provider-reported model, outcome, error, result, user, created_at).
+- **0011** — `optimization_plans` (floor/building/campus, network label, name, notes, status, markers, evidence refs, version, author, updater); `access_points.tx_power_dbm` nullable, plus `notes`, `created_by_id`. AP `x_coord`/`y_coord` are normalized plan coordinates entered manually.
+
+Collector secrets are not stored: they are `HMAC(AIRGRID_SECRET_KEY, "airgrid-collector:{id}:{salt}")`.

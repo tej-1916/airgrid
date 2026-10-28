@@ -1,3 +1,15 @@
+# Claude completion amendment — 2026-10-28
+
+**Acceptance: grounded conversational analysis, comparisons and history implemented; real provider unverified.**
+
+- `POST /api/v1/analyst/ask` answers six question types (weak signal with persistence class; 24 h vs previous 24 h; latency halves; measurement gaps; survey session summaries; ML vs IDW held-out RMSE) from persisted records with citations (record ID, metric, value, timestamp), or states missing evidence. Unsupported questions list the supported topics.
+- Optional gateway pass requires explicit consent and may only rephrase. Unknown citations or any number absent from evidence/local answer/question → `rejected_ungrounded`, and the local answer is shown. `POST /analyst/ask/preview` returns the exact outbound text and sends/stores nothing. Network names, addresses, device names, plans and notes are excluded. Unconfigured providers report `unconfigured`; success is never fabricated.
+- `POST /analyst/compare`: median comparison of two windows per source/device (never pooled). Session comparison is shared with optimization.
+- `analysis_records` (migration 0010): kind, question, scope, evidence refs, freshness, mode, gateway status, provider-reported model, outcome, error, operator. All users can read; only admins can delete (audited); included in retention. `/ai-analyst` has tabs: saved report, ask, compare, history.
+- **Not done:** verification against a real local or remote model (owner configuration); `/ai-models` remains a shell.
+
+---
+
 # Phase 07 handoff — AI Gateway and evidence Analyst
 
 Date: 2026-10-28. **Implemented core slice; full requested Phase 07 scope is partial.**

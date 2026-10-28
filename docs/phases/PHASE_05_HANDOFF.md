@@ -1,3 +1,15 @@
+# Claude completion amendment — 2026-10-28
+
+**Acceptance: instrument-data path and plan-version binding implemented; operational training still blocked by data.**
+
+- `POST /api/v1/surveys/{id}/measurements/from-snapshot` is now the only way to create `field_instrument_verified` points: a server-owned snapshot (registered collector or consented backend host) collected within 15 minutes, with RSSI and network identity, placed by the operator at a chosen position on a **calibrated** plan. One snapshot maps to one point (unique constraint; races return 409), and manual entries cannot overwrite an instrument point. The survey studio offers placeable observations when a position is clicked. Position is never inferred.
+- Models store a floor-plan signature (floor, building, plan id/file, pixel size, scale, calibration). Prediction maps return 409 after any change, or for legacy models without a signature (retrain).
+- The readiness card shows counts by source (instrument-verified eligible vs operator-reported/other vs controlled imports).
+- Unchanged and still true: session/spatial holdouts, matched supported baselines, artifact hash and sklearn checks, case-sensitive networks, fixture training only in tests.
+- **Data state:** `airgrid_db` has 0 instrument-verified points, 13 survey measurements (operator-reported/controlled), and no registered collectors. No campus model was trained. Evidence: `docs/development/CLAUDE_COMPLETION_PROGRESS.md`.
+
+---
+
 # Current verification amendment
 
 **Acceptance: recovered ML pipeline implemented and hardened; operational data unavailable; broader production acceptance remains partial.** The historical report below is retained with corrections. No real campus model was trained during this recovery.

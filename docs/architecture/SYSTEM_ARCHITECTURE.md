@@ -27,3 +27,15 @@ Optimization uses authenticated read-only floor/network survey queries, excludes
 No automation product module, public dispatch-test endpoint, workflow builder, background collection, scheduled probing or router-control execution is enabled. Legacy signing/simulation code remains internal. Older design specifications are historical, particularly the retired automation design.
 
 Open scope: collector registration/identity and trusted ingestion, shared cross-worker rate/concurrency limits, retention controls, historical telemetry charts, temporal/session validation refinements, persisted candidate plans, and reports spanning speed history, heatmaps, ML and multiple sessions. Current diagnostic reports must not be treated as causal proof or full coverage certification. Browser fixture screenshots verify UI behavior, not physical network conditions.
+
+## Evidence trust boundaries (2026-10-28)
+
+| Source | How it enters | Provenance / vantage | Can become training data? |
+|---|---|---|---|
+| Browser form or browser-supplied telemetry | Session + CSRF | `operator_reported` / `operator_supplied` | No |
+| Backend-host collector | Engineer/admin action, consent, `AIRGRID_COLLECTOR_ENABLED` | `instrumented_linux_telemetry` / `backend_server` (server-owned snapshot) | Only after operator placement on a calibrated plan |
+| Registered collector | HMAC-signed submission (id, timestamp, nonce, body hash); admin-issued secret | `instrumented_linux_telemetry` / `registered_collector` | Only after operator placement on a calibrated plan |
+| Browser speed test | Operator-started | `client_reported` / browser device | No (diagnostic context only) |
+| Controlled imports, IDW estimates, ML predictions | Tests / derived | separate labels | Never |
+
+Analysis paths (diagnostic engine, Analyst, optimization) read persisted records only and cite them. The optional AI gateway receives a minimized, previewable payload after explicit consent and can only rephrase or reorder; its output is validated against known evidence IDs and values. No component executes router, channel, power or credential changes, scans neighbouring networks or captures packets.

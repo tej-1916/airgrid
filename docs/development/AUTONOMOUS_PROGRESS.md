@@ -1,3 +1,5 @@
+> Superseded for current state by `CLAUDE_COMPLETION_PROGRESS.md` (2026-10-28). Retained as the Codex recovery record.
+
 # Autonomous recovery checkpoint — 2026-10-28
 
 Branch: `feat/airgrid-real-network-intelligence`. Started at `9c3b457`; latest implementation checkpoint: **`86468c7`**. The subsequent documentation checkpoint is available via `git log -1`. No remotes configured; no push or PR possible.

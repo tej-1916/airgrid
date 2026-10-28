@@ -1,3 +1,16 @@
+# Claude completion amendment — 2026-10-28
+
+**Acceptance: registration, signed ingestion, server-owned snapshots, retention and trend charts implemented and tested with fixtures; hardware validation pending.**
+
+- Registered collectors (`/api/v1/collectors`): admin registration with secret shown once (HMAC-derived, never stored), rotation, revocation, audit, status (last seen, accepted/rejected counts). Signed ingestion (`POST /api/v1/collectors/ingest`) with timestamp window, single-use nonce, body hash, 16 KiB cap, strict schema, HTTPS off-loopback, per-collector quota and per-address flood gate. Fails closed (503) without a unique ≥ 32-character `AIRGRID_SECRET_KEY`. Browser sessions cannot ingest.
+- `/diagnostics/collect` stores a server-owned snapshot; `/diagnostics/analyze` accepts `telemetry_snapshot_id` (atomic claim; conflicting scope rejected; failed collections not analyzable). UI analyses therefore keep instrument provenance. Browser-supplied telemetry is still downgraded.
+- `GET /diagnostics/trends`: persisted RSSI, link rate, gateway RTT/loss, browser speed tests, transitions/roams, availability, freshness, daily aggregates. `/diagnostics` has tabs for backend host, collectors, trends and retention.
+- Retention (`/api/v1/retention`): disabled by default; admin policy → preview → confirmed apply with expected count; daily aggregates; report/survey-linked snapshots protected; audited.
+- CLI: `packages/collector/airgrid_collector.py --collect --submit --credentials FILE` signs one reading (0600 file required).
+- **Not done:** live collection on real hardware; shared multi-worker limiter. Rate-limit tradeoff documented in the completion progress file.
+
+---
+
 # Current recovery amendment — 2026-10-28
 
 **Acceptance: safe diagnostics core implemented; full Phase 06 acceptance remains partial.** The historical report below described broader completion than current inspection supports.

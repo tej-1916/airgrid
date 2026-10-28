@@ -1,3 +1,15 @@
+# Claude completion amendment — 2026-10-28
+
+**Acceptance: persisted planning, AP inventory and measured comparison implemented and tested with fixtures.**
+
+- `optimization_plans` (migration 0011): floor-scoped plans with markers (normalized, ≤ 50), notes, status (`draft`, `proposed`, `accepted_for_trial`, `archived`), evidence refs validated against the floor's survey points, author and version. Edits require `expected_version` (stale edits return 409). Engineers/admins edit; only the author or an admin deletes; viewers read; audited. The UI's in-memory Plan A/B is replaced by the saved plan editor.
+- Manual AP inventory (`/api/v1/optimization/access-points`): unique MAC, normalized position, channels, status, notes; `tx_power_dbm` nullable (unknown stays unknown). Nothing is discovered.
+- Recommendations add nearest-registered-AP straight-line plan distances for weak observations (calibrated plans only; walls/antenna/power unknown), a prompt to register APs when none are placed, and per-source repeated RSSI change review.
+- `POST /api/v1/optimization/compare-sessions`: observed before/after on paired grid cells (≥ 3 dB reported as change) with method/device/coverage caveats; hypothetical plans are never scored. Export includes saved plans and APs.
+- No router, channel, power or credential change is implemented.
+
+---
+
 # Phase 08 handoff — survey recommendations and candidate plans
 
 Date: 2026-10-28. **Implemented survey/planning core; full requested Phase 08 scope is partial.**
