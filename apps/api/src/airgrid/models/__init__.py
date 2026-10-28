@@ -27,6 +27,7 @@ from airgrid.models.all_models import (
     NetworkDiagnosticReport,
     NetworkTelemetrySnapshot,
     NetworkDiagnosticFinding,
+    CampusMembership,
 )
 
 __all__ = [
@@ -37,6 +38,7 @@ __all__ = [
     "UserSession",
     "AuditLog",
     "Campus",
+    "CampusMembership",
     "Building",
     "Floor",
     "FloorPlanAsset",

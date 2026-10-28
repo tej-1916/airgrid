@@ -81,6 +81,12 @@ async def auth_client():
             user = User(email=email, hashed_password=hash_password(password), full_name=f"Fixture {role}",
                         role=role, is_active=True)
             session.add(user)
+            await session.flush()
+            from sqlalchemy import select
+            from airgrid.models.all_models import Campus, CampusMembership
+            campuses = (await session.execute(select(Campus))).scalars().all()
+            for c in campuses:
+                session.add(CampusMembership(campus_id=c.id, user_id=user.id))
             await session.commit()
             await session.refresh(user)
         ac = AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver")

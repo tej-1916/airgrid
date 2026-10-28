@@ -39,6 +39,7 @@ class User(Base, TimestampMixin):
     survey_sessions: Mapped[List["SurveySession"]] = relationship("SurveySession", back_populates="technician")
     sessions: Mapped[List["UserSession"]] = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
     speed_tests: Mapped[List["InternetSpeedTest"]] = relationship("InternetSpeedTest", back_populates="user")
+    campus_memberships: Mapped[List["CampusMembership"]] = relationship("CampusMembership", back_populates="user", cascade="all, delete-orphan")
 
 
 # 1.1 User Sessions
@@ -100,6 +101,7 @@ class Campus(Base, TimestampMixin):
     )
 
     buildings: Mapped[List["Building"]] = relationship("Building", back_populates="campus", cascade="all, delete-orphan")
+    memberships: Mapped[List["CampusMembership"]] = relationship("CampusMembership", back_populates="campus", cascade="all, delete-orphan")
 
 
 # 4. Buildings
@@ -778,3 +780,23 @@ class OptimizationPlan(Base, TimestampMixin):
     )
 
     author: Mapped[Optional["User"]] = relationship("User", foreign_keys=[author_id])
+
+
+# 29. Campus Memberships (Campus-Scoped Access Control)
+class CampusMembership(Base):
+    __tablename__ = "campus_memberships"
+    __table_args__ = (
+        UniqueConstraint("user_id", "campus_id", name="uq_campus_memberships_user_campus"),
+        Index("ix_campus_memberships_campus_id", "campus_id"),
+        Index("ix_campus_memberships_user_id", "user_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    campus_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="CASCADE"), nullable=False)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    campus: Mapped["Campus"] = relationship("Campus", back_populates="memberships")
+    user: Mapped["User"] = relationship("User", back_populates="campus_memberships")
+

@@ -37,6 +37,11 @@ async def admin_auth(client: AsyncClient):
             is_active=True,
         )
         session.add(user)
+        await session.flush()
+        from airgrid.models.all_models import Campus, CampusMembership
+        campuses = (await session.execute(select(Campus))).scalars().all()
+        for c in campuses:
+            session.add(CampusMembership(campus_id=c.id, user_id=user.id))
         await session.commit()
         await session.refresh(user)
 
@@ -78,6 +83,11 @@ async def viewer_auth(client: AsyncClient):
             is_active=True,
         )
         session.add(user)
+        await session.flush()
+        from airgrid.models.all_models import Campus, CampusMembership
+        campuses = (await session.execute(select(Campus))).scalars().all()
+        for c in campuses:
+            session.add(CampusMembership(campus_id=c.id, user_id=user.id))
         await session.commit()
         await session.refresh(user)
 
@@ -111,6 +121,10 @@ async def ml_test_floor(admin_auth):
         campus = Campus(name="ML Test Campus", code=f"ML-{uuid.uuid4().hex[:4].upper()}")
         session.add(campus)
         await session.flush()
+        from airgrid.models.all_models import CampusMembership, User
+        users = (await session.execute(select(User))).scalars().all()
+        for u in users:
+            session.add(CampusMembership(campus_id=campus.id, user_id=u.id))
 
         building = Building(campus_id=campus.id, name="Engineering Hall", building_code="ENG-1")
         session.add(building)

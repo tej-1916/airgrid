@@ -19,8 +19,8 @@ router = APIRouter(prefix="/collectors", tags=["Registered Collectors"])
 
 
 @router.get("", response_model=list[CollectorResponse])
-async def list_collectors(db: AsyncSession = Depends(get_db), _: User = Depends(require_authenticated)):
-    return await collector_service.list_collectors(db)
+async def list_collectors(db: AsyncSession = Depends(get_db), user: User = Depends(require_authenticated)):
+    return await collector_service.list_collectors(db, user)
 
 
 @router.post("", response_model=CollectorCredentials, status_code=status.HTTP_201_CREATED,
@@ -43,8 +43,8 @@ async def rotate_collector_secret(collector_id: uuid.UUID, db: AsyncSession = De
 
 @router.get("/{collector_id}/observations", response_model=list[TelemetrySnapshotResponse])
 async def list_collector_observations(collector_id: uuid.UUID, limit: int = Query(50, ge=1, le=500),
-                                      db: AsyncSession = Depends(get_db), _: User = Depends(require_authenticated)):
-    return [snapshot_to_response(s) for s in await collector_service.list_observations(db, collector_id, limit)]
+                                      db: AsyncSession = Depends(get_db), user: User = Depends(require_authenticated)):
+    return [snapshot_to_response(s) for s in await collector_service.list_observations(db, collector_id, limit, user)]
 
 
 @router.post("/ingest", response_model=CollectorIngestResponse, status_code=status.HTTP_201_CREATED)

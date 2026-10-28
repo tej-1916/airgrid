@@ -137,7 +137,7 @@ class DiagnosticService:
     and PostgreSQL persistence for AirGrid Phase 06.
     """
 
-    async def _validate_scope(self, db, req):
+    async def _validate_scope(self, db, req, current_user: Optional[User] = None):
         if req.floor_id:
             floor = await db.get(Floor, req.floor_id)
             if not floor:
@@ -154,6 +154,10 @@ class DiagnosticService:
             req.campus_id = building.campus_id
         elif req.campus_id and not await db.get(Campus, req.campus_id):
             raise HTTPException(status_code=404, detail="Campus not found.")
+
+        if current_user and req.campus_id:
+            from airgrid.services.campus_service import require_campus_access
+            await require_campus_access(db, current_user, req.campus_id)
 
     async def collect_telemetry_snapshot(
         self,
@@ -174,7 +178,7 @@ class DiagnosticService:
         if not settings.AIRGRID_COLLECTOR_ENABLED:
             raise HTTPException(status_code=409, detail="Backend collector disabled by host configuration.")
 
-        await self._validate_scope(db, req)
+        await self._validate_scope(db, req, current_user=current_user)
 
         # 1. Collect live wireless status from Linux OS tools
         raw_telemetry = await run_in_threadpool(telemetry_collector.collect_wireless_telemetry, req.interface_name)
@@ -254,7 +258,7 @@ class DiagnosticService:
         await db.refresh(entity)
         return snapshot_to_response(entity)
 
-    async def _load_unreported_snapshot(self, db: AsyncSession, req: AnalyzeDiagnosticsRequest) -> NetworkTelemetrySnapshot:
+    async def _load_unreported_snapshot(self, db: AsyncSession, req: AnalyzeDiagnosticsRequest, current_user: Optional[User] = None) -> NetworkTelemetrySnapshot:
         snapshot = await db.get(NetworkTelemetrySnapshot, req.telemetry_snapshot_id)
         if not snapshot:
             raise HTTPException(status_code=404, detail="Telemetry snapshot not found.")
@@ -273,8 +277,11 @@ class DiagnosticService:
             req.device_fingerprint = None
         if snapshot.floor_id or snapshot.building_id or snapshot.campus_id:
             req.campus_id, req.building_id, req.floor_id = snapshot.campus_id, snapshot.building_id, snapshot.floor_id
+            if current_user and req.campus_id:
+                from airgrid.services.campus_service import require_campus_access
+                await require_campus_access(db, current_user, req.campus_id)
         else:
-            await self._validate_scope(db, req)
+            await self._validate_scope(db, req, current_user=current_user)
         return snapshot
 
     async def ping_gateway_probe(self, req: PingGatewayRequest) -> GatewayPingResult:
@@ -318,12 +325,15 @@ class DiagnosticService:
             )
 
         if not req.telemetry_snapshot_id:
-            await self._validate_scope(db, req)
+            await self._validate_scope(db, req, current_user=current_user)
 
         # 1. Obtain telemetry snapshot
         stored_snapshot: Optional[NetworkTelemetrySnapshot] = None
         if req.telemetry_snapshot_id:
-            stored_snapshot = await self._load_unreported_snapshot(db, req)
+            try:
+                stored_snapshot = await self._load_unreported_snapshot(db, req, current_user=current_user)
+            except TypeError:
+                stored_snapshot = await self._load_unreported_snapshot(db, req)
             telemetry = snapshot_to_response(stored_snapshot)
         elif req.telemetry:
             telemetry = req.telemetry.model_copy(update={
@@ -493,13 +503,31 @@ class DiagnosticService:
         floor_id: Optional[uuid.UUID] = None,
         skip: int = 0,
         limit: int = 20,
+        current_user: Optional[User] = None,
     ) -> DiagnosticReportListResponse:
         """Lists historical diagnostic reports."""
+        if current_user and current_user.role != "administrator":
+            from airgrid.services.campus_service import require_campus_access, require_floor_access, get_authorized_campus_ids
+            if campus_id:
+                await require_campus_access(db, current_user, campus_id)
+            elif floor_id:
+                await require_floor_access(db, current_user, floor_id)
+            else:
+                authorized_ids = await get_authorized_campus_ids(db, current_user)
+                if authorized_ids:
+                    query_filter = NetworkDiagnosticReport.campus_id.in_(authorized_ids) | (
+                        NetworkDiagnosticReport.campus_id.is_(None) & (NetworkDiagnosticReport.user_id == current_user.id)
+                    )
+                else:
+                    query_filter = NetworkDiagnosticReport.campus_id.is_(None) & (NetworkDiagnosticReport.user_id == current_user.id)
+
         query = select(NetworkDiagnosticReport).options(
             selectinload(NetworkDiagnosticReport.user),
             selectinload(NetworkDiagnosticReport.telemetry),
             selectinload(NetworkDiagnosticReport.findings),
         )
+        if current_user and current_user.role != "administrator" and not campus_id and not floor_id:
+            query = query.where(query_filter)
         if campus_id:
             query = query.where(NetworkDiagnosticReport.campus_id == campus_id)
         if building_id:
@@ -509,6 +537,8 @@ class DiagnosticService:
 
         # Count total
         count_stmt = select(func.count(NetworkDiagnosticReport.id))
+        if current_user and current_user.role != "administrator" and not campus_id and not floor_id:
+            count_stmt = count_stmt.where(query_filter)
         if campus_id:
             count_stmt = count_stmt.where(NetworkDiagnosticReport.campus_id == campus_id)
         if building_id:

@@ -297,6 +297,13 @@ async def test_floor_plan_upload_and_calibration(client: AsyncClient, engineer_a
     )
     campus_id = c_resp.json()["id"]
 
+    # Assign engineer to campus
+    await client.post(
+        f"/api/v1/campuses/{campus_id}/members",
+        json={"user_id": str(engineer_auth["user"].id)},
+        headers=headers,
+    )
+
     b_resp = await client.post(
         f"/api/v1/campuses/{campus_id}/buildings",
         json={"name": "Robotics Lab", "building_code": "ROB-1"},
@@ -379,6 +386,13 @@ async def test_floor_plan_validation_errors(client: AsyncClient, engineer_auth, 
     )
     campus_id = c_resp.json()["id"]
 
+    # Assign engineer to campus
+    await client.post(
+        f"/api/v1/campuses/{campus_id}/members",
+        json={"user_id": str(engineer_auth["user"].id)},
+        headers=headers,
+    )
+
     b_resp = await client.post(
         f"/api/v1/campuses/{campus_id}/buildings",
         json={"name": "Hall", "building_code": "HAL"},
@@ -450,6 +464,13 @@ async def test_rbac_viewer_cannot_modify(client: AsyncClient, viewer_auth, admin
         headers=headers,
     )
     campus_id = c_resp.json()["id"]
+
+    # Assign viewer to campus
+    await client.post(
+        f"/api/v1/campuses/{campus_id}/members",
+        json={"user_id": str(viewer_auth["user"].id)},
+        headers=headers,
+    )
 
     # Viewer attempts mutations
     client.cookies = viewer_auth["cookies"]

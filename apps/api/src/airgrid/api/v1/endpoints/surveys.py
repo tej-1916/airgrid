@@ -25,6 +25,7 @@ from airgrid.schemas.survey import (
 from airgrid.services.survey_service import SurveyService
 from airgrid.services.diagnostic_service import snapshot_to_response
 from airgrid.schemas.diagnostics import TelemetrySnapshotResponse
+from airgrid.services import campus_service
 
 router = APIRouter(prefix="/surveys", tags=["Wi-Fi Surveys & Heatmaps"])
 
@@ -84,6 +85,18 @@ def _format_survey(session: SurveySession, include_measurements: bool = False) -
     )
 
 
+async def _require_survey_access(db: AsyncSession, survey_id: uuid.UUID, user: User) -> SurveySession:
+    session = await SurveyService.get_survey_session(db, survey_id)
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Survey session '{survey_id}' not found.",
+        )
+    if user.role != "administrator" and session.campus_id:
+        await campus_service.require_campus_access(db, user, session.campus_id)
+    return session
+
+
 @router.post(
     "",
     response_model=SurveySessionResponse,
@@ -98,8 +111,10 @@ async def create_survey(
 ):
     """
     Creates a new named survey session bound to a verified campus/building/floor.
-    Requires Network Engineer or Administrator role.
+    Requires Network Engineer or Administrator role and campus scoping.
     """
+    await campus_service.get_floor_by_id(db, payload.floor_id, current_user=current_user)
+
     session = await SurveyService.create_survey_session(
         db=db,
         payload=payload,
@@ -123,9 +138,12 @@ async def list_surveys(
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
-    """Lists survey sessions matching filter parameters."""
+    """Lists survey sessions matching filter parameters, scoped by campus."""
+    if campus_id and current_user.role != "administrator":
+        await campus_service.require_campus_access(db, current_user, campus_id)
+
     items, total = await SurveyService.list_survey_sessions(
         db=db,
         campus_id=campus_id,
@@ -135,6 +153,12 @@ async def list_surveys(
         limit=limit,
         offset=offset,
     )
+    if current_user.role != "administrator":
+        authorized_ids = await campus_service.get_authorized_campus_ids(db, current_user)
+        if authorized_ids is not None:
+            items = [item for item in items if item.campus_id in authorized_ids]
+            total = len(items)
+
     return SurveySessionListResponse(
         total=total,
         items=[_format_survey(item) for item in items],
@@ -178,15 +202,10 @@ async def get_client_telemetry_status(
 async def get_survey(
     survey_id: uuid.UUID = Path(..., description="Survey session UUID"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
-    """Retrieves a single survey session including all recorded measurements."""
-    session = await SurveyService.get_survey_session(db, survey_id)
-    if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Survey session '{survey_id}' not found.",
-        )
+    """Retrieves a single survey session including all recorded measurements (enforces campus scoping)."""
+    session = await _require_survey_access(db, survey_id, current_user)
     return _format_survey(session, include_measurements=True)
 
 
@@ -202,7 +221,8 @@ async def update_survey(
     current_user: User = Depends(require_engineer_or_admin),
     _: None = Depends(verify_csrf),
 ):
-    """Updates survey session name, description, or status."""
+    """Updates survey session name, description, or status (enforces campus scoping)."""
+    await _require_survey_access(db, survey_id, current_user)
     updated = await SurveyService.update_survey_session(db, survey_id, payload)
     return _format_survey(updated)
 
@@ -218,7 +238,8 @@ async def complete_survey(
     current_user: User = Depends(require_engineer_or_admin),
     _: None = Depends(verify_csrf),
 ):
-    """Marks survey session status as completed with a completion timestamp."""
+    """Marks survey session status as completed with a completion timestamp (enforces campus scoping)."""
+    await _require_survey_access(db, survey_id, current_user)
     completed = await SurveyService.complete_survey_session(db, survey_id)
     return _format_survey(completed)
 
@@ -238,8 +259,9 @@ async def add_measurement(
 ):
     """
     Validates and stores a legitimate signal observation on the specified floor plan coordinates.
-    Requires Network Engineer or Administrator permissions.
+    Requires Network Engineer or Administrator permissions and campus access.
     """
+    await _require_survey_access(db, survey_id, current_user)
     measurement = await SurveyService.add_measurement(
         db=db,
         session_id=survey_id,
@@ -257,8 +279,9 @@ async def add_measurement(
 async def list_placeable_snapshots(
     survey_id: uuid.UUID = Path(..., description="Survey session UUID"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
+    await _require_survey_access(db, survey_id, current_user)
     return [snapshot_to_response(s) for s in await SurveyService.placeable_snapshots(db, survey_id)]
 
 
@@ -276,6 +299,7 @@ async def place_instrument_snapshot(
     _: None = Depends(verify_csrf),
 ):
     """The only path that creates field_instrument_verified survey points."""
+    await _require_survey_access(db, survey_id, current_user)
     measurement = await SurveyService.place_snapshot(db, survey_id, payload, current_user.id)
     return _format_measurement(measurement)
 
@@ -288,9 +312,10 @@ async def place_instrument_snapshot(
 async def list_measurements(
     survey_id: uuid.UUID = Path(..., description="Survey session UUID"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
     """Returns all measurements recorded for the given survey session."""
+    await _require_survey_access(db, survey_id, current_user)
     measurements = await SurveyService.list_measurements(db, survey_id)
     return [_format_measurement(m) for m in measurements]
 
@@ -308,6 +333,7 @@ async def delete_measurement(
     _: None = Depends(verify_csrf),
 ):
     """Deletes an invalid or erroneous measurement with audit tracking."""
+    await _require_survey_access(db, survey_id, current_user)
     await SurveyService.delete_measurement(db, survey_id, measurement_id)
     return None
 
@@ -330,13 +356,14 @@ async def get_or_calculate_heatmap(
     network_label: Optional[str] = Query(None, description="Optional network SSID filter to prevent cross-network contamination"),
     ap_reference: Optional[str] = Query(None, description="Optional AP identifier filter"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
     """
     Generates an estimated coverage surface from real saved survey points using Inverse Distance Weighting.
     Requires at least 3 non-collinear observations.
     Enforces convex-hull spatial support masking and per-network isolation to prevent contamination.
     """
+    await _require_survey_access(db, survey_id, current_user)
     return await SurveyService.calculate_heatmap(
         db=db,
         session_id=survey_id,
@@ -356,7 +383,8 @@ async def get_or_calculate_heatmap(
 async def get_survey_analysis(
     survey_id: uuid.UUID = Path(..., description="Survey session UUID"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
     """Computes genuine mathematical min/max/average RSSI, source breakdown, and coverage estimates."""
+    await _require_survey_access(db, survey_id, current_user)
     return await SurveyService.get_survey_analysis(db, survey_id)

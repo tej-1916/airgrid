@@ -19,6 +19,7 @@ from airgrid.schemas.ml import (
     MLPredictionMapResponse,
 )
 from airgrid.services.ml_service import MLService
+from airgrid.services import campus_service
 
 router = APIRouter(prefix="/ml", tags=["ML Prediction Lab"])
 
@@ -31,13 +32,10 @@ async def get_dataset_readiness(
     user: User = Depends(require_authenticated),
 ):
     """
-    Evaluates dataset readiness for spatial ML training against scientific integrity criteria:
-    - Excludes synthetic/test imports
-    - Validates sample count (>= 15 genuine measurements)
-    - Validates multi-session independence (>= 2 sessions)
-    - Validates 2D planar coverage area
-    - Validates per-network isolation
+    Evaluates dataset readiness for spatial ML training against scientific integrity criteria.
+    Enforces campus scoping.
     """
+    await campus_service.get_floor_by_id(db, floor_id, current_user=user)
     return await MLService.get_dataset_readiness(db, floor_id, network_label)
 
 
@@ -48,7 +46,8 @@ async def get_dataset_explorer(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_authenticated),
 ):
-    """Retrieves statistical distribution, RSSI histogram, and provenance breakdown for the floor survey data."""
+    """Retrieves statistical distribution, RSSI histogram, and provenance breakdown (enforces campus scoping)."""
+    await campus_service.get_floor_by_id(db, floor_id, current_user=user)
     return await MLService.get_dataset_explorer(db, floor_id, network_label)
 
 
@@ -74,10 +73,12 @@ async def train_model(
     """
     Trains a spatial RF path-loss regression model with leakage-safe cross-validation:
     - Enforces dataset readiness criteria for production training
+    - Enforces campus scoping
     - Evaluates out-of-fold MAE and RMSE against Mean and IDW baselines
     - Serializes model artifact to secure storage
     - Records model metadata and evaluation in PostgreSQL
     """
+    await campus_service.get_floor_by_id(db, payload.floor_id, current_user=user)
     return await MLService.train_model(db, user, payload)
 
 
@@ -88,6 +89,8 @@ async def list_models(
     user: User = Depends(require_authenticated),
 ):
     """Lists trained spatial models and their evaluation metrics."""
+    if floor_id:
+        await campus_service.get_floor_by_id(db, floor_id, current_user=user)
     return await MLService.get_models(db, floor_id)
 
 
@@ -97,8 +100,10 @@ async def get_model(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_authenticated),
 ):
-    """Retrieves metadata and evaluation results for a single model."""
-    return await MLService.get_model_detail(db, model_id)
+    """Retrieves metadata and evaluation results for a single model (enforces campus scoping)."""
+    model = await MLService.get_model_detail(db, model_id)
+    await campus_service.get_floor_by_id(db, model.floor_id, current_user=user)
+    return model
 
 
 @router.post(

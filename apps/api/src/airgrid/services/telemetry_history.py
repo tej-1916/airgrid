@@ -70,7 +70,29 @@ def merge_metrics(metrics: dict, rows) -> dict:
 
 
 async def get_trends(db: AsyncSession, collector_id: uuid.UUID | None, floor_id: uuid.UUID | None,
-                     days: int, include_operator_reported: bool) -> dict:
+                     days: int, include_operator_reported: bool, current_user: User | None = None) -> dict:
+    authorized_ids = None
+    if current_user and current_user.role != "administrator":
+        from airgrid.services.campus_service import require_campus_access, require_floor_access, get_authorized_campus_ids
+        from airgrid.models.all_models import NetworkCollector
+        if floor_id:
+            await require_floor_access(db, current_user, floor_id)
+        if collector_id:
+            collector = await db.get(NetworkCollector, collector_id)
+            if collector and collector.campus_id:
+                await require_campus_access(db, current_user, collector.campus_id)
+        if not floor_id and not collector_id:
+            authorized_ids = await get_authorized_campus_ids(db, current_user)
+            if not authorized_ids:
+                return {
+                    "collector_id": str(collector_id) if collector_id else None,
+                    "floor_id": str(floor_id) if floor_id else None,
+                    "days": days, "window_start": None, "window_end": None,
+                    "snapshot_count": 0, "truncated": False, "latest_snapshot_at": None,
+                    "series": [], "transitions": [], "aggregates": [], "speed_tests": [],
+                    "latest_speed_test_at": None,
+                }
+
     until = datetime.now(timezone.utc)
     since = until - timedelta(days=days)
     q = select(NetworkTelemetrySnapshot).where(NetworkTelemetrySnapshot.collected_at >= since)
@@ -78,6 +100,8 @@ async def get_trends(db: AsyncSession, collector_id: uuid.UUID | None, floor_id:
         q = q.where(NetworkTelemetrySnapshot.collector_id == collector_id)
     if floor_id:
         q = q.where(NetworkTelemetrySnapshot.floor_id == floor_id)
+    elif authorized_ids is not None and not collector_id:
+        q = q.where(NetworkTelemetrySnapshot.campus_id.in_(authorized_ids))
     if not include_operator_reported:
         q = q.where(NetworkTelemetrySnapshot.data_provenance != "operator_reported")
     # Newest rows win when truncated; returned ascending for charting.
@@ -98,6 +122,8 @@ async def get_trends(db: AsyncSession, collector_id: uuid.UUID | None, floor_id:
     st = select(InternetSpeedTest).where(InternetSpeedTest.executed_at >= since, InternetSpeedTest.status == "completed")
     if floor_id:
         st = st.where(InternetSpeedTest.floor_id == floor_id)
+    elif authorized_ids is not None and not collector_id:
+        st = st.where(InternetSpeedTest.campus_id.in_(authorized_ids))
     speed_rows = list((await db.execute(st.order_by(InternetSpeedTest.executed_at).limit(500))).scalars())
     speed_tests = [{
         "id": str(s.id), "executed_at": _utc(s.executed_at).isoformat(), "vantage_point": s.vantage_point,

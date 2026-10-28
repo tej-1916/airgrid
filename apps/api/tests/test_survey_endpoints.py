@@ -32,6 +32,11 @@ async def engineer_auth(client: AsyncClient):
             is_active=True,
         )
         session.add(user)
+        await session.flush()
+        from airgrid.models.all_models import CampusMembership
+        campuses = (await session.execute(select(Campus))).scalars().all()
+        for c in campuses:
+            session.add(CampusMembership(campus_id=c.id, user_id=user.id))
         await session.commit()
         await session.refresh(user)
 
@@ -74,6 +79,11 @@ async def viewer_auth(client: AsyncClient):
             is_active=True,
         )
         session.add(user)
+        await session.flush()
+        from airgrid.models.all_models import CampusMembership
+        campuses = (await session.execute(select(Campus))).scalars().all()
+        for c in campuses:
+            session.add(CampusMembership(campus_id=c.id, user_id=user.id))
         await session.commit()
         await session.refresh(user)
 
@@ -111,6 +121,10 @@ async def test_survey_hierarchy():
         )
         session.add(campus)
         await session.flush()
+        from airgrid.models.all_models import CampusMembership
+        users = (await session.execute(select(User))).scalars().all()
+        for u in users:
+            session.add(CampusMembership(campus_id=campus.id, user_id=u.id))
 
         building = Building(
             campus_id=campus.id,

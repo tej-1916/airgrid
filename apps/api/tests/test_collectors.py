@@ -52,6 +52,10 @@ async def make_floor():
         campus = Campus(name="Fixture Campus", code=f"FX-{uuid.uuid4().hex[:8]}")
         s.add(campus)
         await s.flush()
+        from airgrid.models.all_models import CampusMembership, User
+        users = (await s.execute(select(User))).scalars().all()
+        for u in users:
+            s.add(CampusMembership(campus_id=campus.id, user_id=u.id))
         building = Building(campus_id=campus.id, name="Fixture Hall", building_code="FH")
         s.add(building)
         await s.flush()

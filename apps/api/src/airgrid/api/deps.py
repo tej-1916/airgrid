@@ -1,3 +1,4 @@
+import uuid
 from typing import Callable, List, Optional
 from fastapi import Cookie, Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -131,3 +132,14 @@ async def verify_csrf(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="CSRF validation failed: Invalid or expired token signature.",
         )
+
+
+async def check_campus_access(
+    campus_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_authenticated),
+) -> None:
+    """Enforces that the current authenticated user has access to the specified campus."""
+    from airgrid.services import campus_service
+    await campus_service.require_campus_access(db, current_user, campus_id)
+

@@ -8,7 +8,7 @@ from sqlalchemy import desc, select
 from sqlalchemy.exc import IntegrityError
 
 from airgrid.models.all_models import (
-    AccessPoint, AuditLog, Floor, FloorPlanAsset, NetworkTelemetrySnapshot, OptimizationPlan, SurveyMeasurement,
+    AccessPoint, AuditLog, Floor, FloorPlanAsset, NetworkTelemetrySnapshot, OptimizationPlan, SurveyMeasurement, User,
 )
 from airgrid.schemas.auth import UserRole
 
@@ -185,11 +185,17 @@ async def _plan_or_404(db, plan_id):
     return plan
 
 
-async def list_plans(db, floor_id):
+async def list_plans(db, floor_id, user: User | None = None):
     from sqlalchemy.orm import selectinload
+    from airgrid.services.campus_service import get_authorized_campus_ids
     q = select(OptimizationPlan).options(selectinload(OptimizationPlan.author)).order_by(desc(OptimizationPlan.updated_at)).limit(200)
     if floor_id:
         q = q.where(OptimizationPlan.floor_id == floor_id)
+    elif user and user.role != "administrator":
+        authorized_ids = await get_authorized_campus_ids(db, user)
+        if not authorized_ids:
+            return []
+        q = q.where(OptimizationPlan.campus_id.in_(authorized_ids))
     return [plan_row(p) for p in (await db.execute(q)).scalars()]
 
 

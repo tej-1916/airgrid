@@ -174,3 +174,26 @@ class CampusListResponse(BaseModel):
     skip: int
     limit: int
     items: List[CampusResponse]
+
+
+# ==========================================
+# Campus Membership Schemas
+# ==========================================
+
+class CampusMemberCreate(BaseModel):
+    user_id: uuid.UUID
+    role: Optional[str] = Field(default=None, max_length=50)
+
+
+class CampusMemberResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    campus_id: uuid.UUID
+    user_id: uuid.UUID
+    user_email: str
+    user_full_name: str
+    user_role: str
+    membership_role: Optional[str] = None
+    created_at: datetime
+

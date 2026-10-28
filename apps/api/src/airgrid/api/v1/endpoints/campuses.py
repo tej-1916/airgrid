@@ -35,6 +35,8 @@ from airgrid.schemas.campus import (
     FloorResponse,
     FloorPlanResponse,
     CalibrationRequest,
+    CampusMemberCreate,
+    CampusMemberResponse,
 )
 from airgrid.services import campus_service
 
@@ -130,11 +132,11 @@ async def list_campuses(
     q: Optional[str] = Query(None, description="Search by name, code, or address"),
     status: Optional[str] = Query(None, description="Filter by status (active/archived)"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
-    """List campuses with pagination, search, and hierarchy counts."""
+    """List campuses with pagination, search, and campus scoping for non-admins."""
     total, campuses = await campus_service.list_campuses(
-        db, skip=skip, limit=limit, query=q, status_filter=status
+        db, skip=skip, limit=limit, query=q, status_filter=status, current_user=current_user
     )
     items = [_format_campus_response(c) for c in campuses]
     return CampusListResponse(total=total, skip=skip, limit=limit, items=items)
@@ -160,11 +162,63 @@ async def create_campus(
 async def get_campus(
     campus_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
-    """Get single campus details with buildings and floors."""
-    campus = await campus_service.get_campus_by_id(db, campus_id)
+    """Get single campus details with buildings and floors (enforces membership)."""
+    campus = await campus_service.get_campus_by_id(db, campus_id, current_user=current_user)
     return _format_campus_response(campus)
+
+
+@router.get("/campuses/{campus_id}/members", response_model=List[CampusMemberResponse])
+async def list_campus_members(
+    campus_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_authenticated),
+):
+    """List members assigned to a campus."""
+    return await campus_service.list_campus_members(db, campus_id, current_user=current_user)
+
+
+@router.post(
+    "/campuses/{campus_id}/members",
+    response_model=CampusMemberResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def add_campus_member(
+    campus_id: uuid.UUID,
+    data: CampusMemberCreate,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+    _: None = Depends(verify_csrf),
+):
+    """Assign a user to a campus (Administrator only)."""
+    ip_addr = request.client.host if request.client else None
+    return await campus_service.add_campus_member(
+        db=db,
+        campus_id=campus_id,
+        user_id=data.user_id,
+        role=data.role,
+        current_user=current_user,
+        ip_address=ip_addr,
+    )
+
+
+@router.delete("/campuses/{campus_id}/members/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_campus_member(
+    campus_id: uuid.UUID,
+    user_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+    _: None = Depends(verify_csrf),
+):
+    """Remove a user from a campus (Administrator only)."""
+    ip_addr = request.client.host if request.client else None
+    await campus_service.remove_campus_member(
+        db=db, campus_id=campus_id, user_id=user_id, current_user=current_user, ip_address=ip_addr
+    )
+    return None
 
 
 @router.patch("/campuses/{campus_id}", response_model=CampusResponse)
@@ -208,10 +262,10 @@ async def delete_campus(
 async def list_buildings(
     campus_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
-    """List buildings for a campus."""
-    buildings = await campus_service.list_buildings_for_campus(db, campus_id)
+    """List buildings for a campus (enforces campus scoping)."""
+    buildings = await campus_service.list_buildings_for_campus(db, campus_id, current_user=current_user)
     return [_format_building_response(b) for b in buildings]
 
 
@@ -240,10 +294,10 @@ async def create_building(
 async def get_building(
     building_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
-    """Get single building details."""
-    building = await campus_service.get_building_by_id(db, building_id)
+    """Get single building details (enforces campus scoping)."""
+    building = await campus_service.get_building_by_id(db, building_id, current_user=current_user)
     return _format_building_response(building)
 
 
@@ -288,10 +342,10 @@ async def delete_building(
 async def list_floors(
     building_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
-    """List floors for a building."""
-    floors = await campus_service.list_floors_for_building(db, building_id)
+    """List floors for a building (enforces campus scoping)."""
+    floors = await campus_service.list_floors_for_building(db, building_id, current_user=current_user)
     return [_format_floor_response(f) for f in floors]
 
 
@@ -320,10 +374,10 @@ async def create_floor(
 async def get_floor(
     floor_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
-    """Get single floor details including floor plan."""
-    floor = await campus_service.get_floor_by_id(db, floor_id)
+    """Get single floor details including floor plan (enforces campus scoping)."""
+    floor = await campus_service.get_floor_by_id(db, floor_id, current_user=current_user)
     return _format_floor_response(floor)
 
 
@@ -395,10 +449,10 @@ async def upload_floor_plan(
 async def get_floor_plan_for_floor(
     floor_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
-    """Retrieve floor plan for a floor."""
-    floor = await campus_service.get_floor_by_id(db, floor_id)
+    """Retrieve floor plan for a floor (enforces campus scoping)."""
+    floor = await campus_service.get_floor_by_id(db, floor_id, current_user=current_user)
     return _format_floor_plan_response(floor.floor_plan)
 
 
@@ -406,10 +460,10 @@ async def get_floor_plan_for_floor(
 async def get_floor_plan(
     plan_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
-    """Get floor plan metadata."""
-    plan = await campus_service.get_floor_plan_by_id(db, plan_id)
+    """Get floor plan metadata (enforces campus scoping)."""
+    plan = await campus_service.get_floor_plan_by_id(db, plan_id, current_user=current_user)
     return _format_floor_plan_response(plan)
 
 
@@ -417,13 +471,13 @@ async def get_floor_plan(
 async def get_floor_plan_image(
     plan_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
     """
     Authorized endpoint to stream floor plan image file.
-    Requires authenticated session.
+    Requires authenticated session and campus membership.
     """
-    plan = await campus_service.get_floor_plan_by_id(db, plan_id)
+    plan = await campus_service.get_floor_plan_by_id(db, plan_id, current_user=current_user)
     if not os.path.exists(plan.file_path):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

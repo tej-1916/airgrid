@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from airgrid.core.config import settings
 from airgrid.core.logging import logger
-from airgrid.models.all_models import Campus, Building, Floor, FloorPlanAsset, User
+from airgrid.models.all_models import Campus, Building, Floor, FloorPlanAsset, User, CampusMembership
 from airgrid.schemas.campus import (
     CampusCreate,
     CampusUpdate,
@@ -32,6 +32,76 @@ def get_secure_upload_dir() -> str:
 
 
 # =========================================================================
+# Campus-Scoped Access Control Helpers
+# =========================================================================
+
+async def get_authorized_campus_ids(db: AsyncSession, user: User) -> Optional[List[uuid.UUID]]:
+    """
+    Returns a list of campus IDs that the user is authorized to access.
+    Returns None if the user is a global administrator (unrestricted).
+    """
+    if user.role == "administrator":
+        return None
+    stmt = select(CampusMembership.campus_id).where(CampusMembership.user_id == user.id)
+    res = await db.execute(stmt)
+    return list(res.scalars().all())
+
+
+async def check_user_campus_access(db: AsyncSession, user: User, campus_id: uuid.UUID) -> bool:
+    """Returns True if the user is authorized for the specified campus."""
+    if user.role == "administrator":
+        return True
+    stmt = select(func.count(CampusMembership.id)).where(
+        and_(CampusMembership.user_id == user.id, CampusMembership.campus_id == campus_id)
+    )
+    res = await db.execute(stmt)
+    return (res.scalar() or 0) > 0
+
+
+async def require_campus_access(db: AsyncSession, user: User, campus_id: uuid.UUID) -> None:
+    """Raises HTTP 403 Forbidden if user is not authorized for the campus."""
+    if not await check_user_campus_access(db, user, campus_id):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Forbidden: You do not have access to this campus.",
+        )
+
+
+async def get_campus_id_for_floor(db: AsyncSession, floor_id: uuid.UUID) -> Optional[uuid.UUID]:
+    """Helper that resolves a floor's campus_id via its building."""
+    stmt = (
+        select(Building.campus_id)
+        .join(Floor, Floor.building_id == Building.id)
+        .where(Floor.id == floor_id)
+    )
+    res = await db.execute(stmt)
+    return res.scalar_one_or_none()
+
+
+async def require_floor_access(db: AsyncSession, user: User, floor_id: uuid.UUID) -> uuid.UUID:
+    """Resolves the campus_id for a floor and checks that the user has access.
+    Raises 404 if floor/building is not found, or 403 if user lacks access.
+    Returns the resolved campus_id.
+    """
+    if user.role == "administrator":
+        floor = await db.get(Floor, floor_id)
+        if not floor:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Floor not found.")
+        campus_id = await get_campus_id_for_floor(db, floor_id)
+        return campus_id
+
+    campus_id = await get_campus_id_for_floor(db, floor_id)
+    if not campus_id:
+        floor = await db.get(Floor, floor_id)
+        if not floor:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Floor not found.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campus association not found.")
+    await require_campus_access(db, user, campus_id)
+    return campus_id
+
+
+
+# =========================================================================
 # Campus Operations
 # =========================================================================
 
@@ -41,13 +111,21 @@ async def list_campuses(
     limit: int = 50,
     query: Optional[str] = None,
     status_filter: Optional[str] = None,
+    current_user: Optional[User] = None,
 ) -> Tuple[int, List[Campus]]:
-    """List campuses with pagination and optional search query."""
+    """List campuses with pagination, search query, and campus scoping for non-admins."""
     stmt = select(Campus).options(
         selectinload(Campus.buildings).selectinload(Building.floors).selectinload(Floor.floor_plan)
     )
 
     conditions = []
+    if current_user and current_user.role != "administrator":
+        authorized_ids = await get_authorized_campus_ids(db, current_user)
+        if authorized_ids is not None:
+            if not authorized_ids:
+                return 0, []
+            conditions.append(Campus.id.in_(authorized_ids))
+
     if query:
         search_term = f"%{query.strip()}%"
         conditions.append(
@@ -72,8 +150,15 @@ async def list_campuses(
     return total, campuses
 
 
-async def get_campus_by_id(db: AsyncSession, campus_id: uuid.UUID) -> Campus:
-    """Retrieve single campus by UUID with related hierarchy."""
+async def get_campus_by_id(
+    db: AsyncSession,
+    campus_id: uuid.UUID,
+    current_user: Optional[User] = None,
+) -> Campus:
+    """Retrieve single campus by UUID with related hierarchy. Enforces membership for non-admins."""
+    if current_user and current_user.role != "administrator":
+        await require_campus_access(db, current_user, campus_id)
+
     stmt = (
         select(Campus)
         .where(Campus.id == campus_id)
@@ -205,11 +290,13 @@ async def delete_campus(
 # =========================================================================
 
 async def list_buildings_for_campus(
-    db: AsyncSession, campus_id: uuid.UUID
+    db: AsyncSession,
+    campus_id: uuid.UUID,
+    current_user: Optional[User] = None,
 ) -> List[Building]:
-    """List all buildings within a specified campus."""
-    # Ensure campus exists
-    await get_campus_by_id(db, campus_id)
+    """List all buildings within a specified campus. Enforces campus scoping."""
+    # Ensure campus exists and user has access
+    await get_campus_by_id(db, campus_id, current_user=current_user)
 
     stmt = (
         select(Building)
@@ -221,8 +308,12 @@ async def list_buildings_for_campus(
     return list(res.scalars().all())
 
 
-async def get_building_by_id(db: AsyncSession, building_id: uuid.UUID) -> Building:
-    """Retrieve single building by UUID."""
+async def get_building_by_id(
+    db: AsyncSession,
+    building_id: uuid.UUID,
+    current_user: Optional[User] = None,
+) -> Building:
+    """Retrieve single building by UUID. Enforces campus scoping."""
     stmt = (
         select(Building)
         .where(Building.id == building_id)
@@ -235,6 +326,8 @@ async def get_building_by_id(db: AsyncSession, building_id: uuid.UUID) -> Buildi
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Building with id '{building_id}' not found",
         )
+    if current_user and current_user.role != "administrator":
+        await require_campus_access(db, current_user, building.campus_id)
     return building
 
 
@@ -364,10 +457,12 @@ async def delete_building(
 # =========================================================================
 
 async def list_floors_for_building(
-    db: AsyncSession, building_id: uuid.UUID
+    db: AsyncSession,
+    building_id: uuid.UUID,
+    current_user: Optional[User] = None,
 ) -> List[Floor]:
-    """List all floors for a specified building."""
-    await get_building_by_id(db, building_id)
+    """List all floors for a specified building. Enforces campus scoping."""
+    await get_building_by_id(db, building_id, current_user=current_user)
     stmt = (
         select(Floor)
         .where(Floor.building_id == building_id)
@@ -378,8 +473,12 @@ async def list_floors_for_building(
     return list(res.scalars().all())
 
 
-async def get_floor_by_id(db: AsyncSession, floor_id: uuid.UUID) -> Floor:
-    """Retrieve single floor by UUID."""
+async def get_floor_by_id(
+    db: AsyncSession,
+    floor_id: uuid.UUID,
+    current_user: Optional[User] = None,
+) -> Floor:
+    """Retrieve single floor by UUID. Enforces campus scoping."""
     stmt = (
         select(Floor)
         .where(Floor.id == floor_id)
@@ -392,6 +491,8 @@ async def get_floor_by_id(db: AsyncSession, floor_id: uuid.UUID) -> Floor:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Floor with id '{floor_id}' not found",
         )
+    if current_user and current_user.role != "administrator" and floor.building:
+        await require_campus_access(db, current_user, floor.building.campus_id)
     return floor
 
 
@@ -669,8 +770,12 @@ async def save_floor_plan(
     return plan_asset
 
 
-async def get_floor_plan_by_id(db: AsyncSession, plan_id: uuid.UUID) -> FloorPlanAsset:
-    """Retrieve floor plan asset by UUID."""
+async def get_floor_plan_by_id(
+    db: AsyncSession,
+    plan_id: uuid.UUID,
+    current_user: Optional[User] = None,
+) -> FloorPlanAsset:
+    """Retrieve floor plan asset by UUID. Enforces campus scoping."""
     stmt = (
         select(FloorPlanAsset)
         .where(FloorPlanAsset.id == plan_id)
@@ -683,6 +788,8 @@ async def get_floor_plan_by_id(db: AsyncSession, plan_id: uuid.UUID) -> FloorPla
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Floor plan with id '{plan_id}' not found",
         )
+    if current_user and current_user.role != "administrator" and plan.floor and plan.floor.building:
+        await require_campus_access(db, current_user, plan.floor.building.campus_id)
     return plan
 
 
@@ -753,3 +860,125 @@ async def calibrate_floor_plan(
         ip_address=ip_address,
     )
     return await get_floor_plan_by_id(db, plan_id_val)
+
+
+# =========================================================================
+# Campus Membership Operations
+# =========================================================================
+
+async def list_campus_members(
+    db: AsyncSession,
+    campus_id: uuid.UUID,
+    current_user: User,
+) -> List[dict]:
+    """Lists members assigned to a campus."""
+    if current_user.role != "administrator":
+        await require_campus_access(db, current_user, campus_id)
+
+    stmt = (
+        select(CampusMembership)
+        .where(CampusMembership.campus_id == campus_id)
+        .options(selectinload(CampusMembership.user))
+        .order_by(CampusMembership.created_at.asc())
+    )
+    res = await db.execute(stmt)
+    memberships = list(res.scalars().all())
+    result = []
+    for m in memberships:
+        if m.user:
+            result.append({
+                "id": m.id,
+                "campus_id": m.campus_id,
+                "user_id": m.user_id,
+                "user_email": m.user.email,
+                "user_full_name": m.user.full_name,
+                "user_role": m.user.role,
+                "membership_role": m.role,
+                "created_at": m.created_at,
+            })
+    return result
+
+
+async def add_campus_member(
+    db: AsyncSession,
+    campus_id: uuid.UUID,
+    user_id: uuid.UUID,
+    role: Optional[str],
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> dict:
+    """Assigns a user to a campus (Admin only)."""
+    await get_campus_by_id(db, campus_id, current_user=current_user)
+    target_user = await db.get(User, user_id)
+    if not target_user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"User '{user_id}' not found.")
+
+    existing = await db.execute(
+        select(CampusMembership).where(
+            and_(CampusMembership.campus_id == campus_id, CampusMembership.user_id == user_id)
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="User is already assigned to this campus.")
+
+    membership = CampusMembership(
+        campus_id=campus_id,
+        user_id=user_id,
+        role=role or target_user.role,
+    )
+    db.add(membership)
+    await db.commit()
+    await db.refresh(membership)
+
+    await log_auth_audit_event(
+        db=db,
+        action="campus.member_added",
+        actor_id=current_user.id,
+        payload={
+            "campus_id": str(campus_id),
+            "user_id": str(user_id),
+            "role": membership.role,
+        },
+        ip_address=ip_address,
+    )
+    return {
+        "id": membership.id,
+        "campus_id": membership.campus_id,
+        "user_id": membership.user_id,
+        "user_email": target_user.email,
+        "user_full_name": target_user.full_name,
+        "user_role": target_user.role,
+        "membership_role": membership.role,
+        "created_at": membership.created_at,
+    }
+
+
+async def remove_campus_member(
+    db: AsyncSession,
+    campus_id: uuid.UUID,
+    user_id: uuid.UUID,
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> bool:
+    """Removes a user from a campus (Admin only)."""
+    await get_campus_by_id(db, campus_id, current_user=current_user)
+    stmt = select(CampusMembership).where(
+        and_(CampusMembership.campus_id == campus_id, CampusMembership.user_id == user_id)
+    )
+    res = await db.execute(stmt)
+    membership = res.scalar_one_or_none()
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User is not a member of this campus.")
+
+    await db.delete(membership)
+    await db.commit()
+
+    await log_auth_audit_event(
+        db=db,
+        action="campus.member_removed",
+        actor_id=current_user.id,
+        payload={"campus_id": str(campus_id), "user_id": str(user_id)},
+        ip_address=ip_address,
+    )
+    return True
+

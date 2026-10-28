@@ -108,13 +108,24 @@ async def rotate(db: AsyncSession, collector_id: uuid.UUID, user: User) -> tuple
     return collector, derive_secret(collector.id, collector.secret_salt)
 
 
-async def list_collectors(db: AsyncSession) -> list[NetworkCollector]:
-    result = await db.execute(select(NetworkCollector).order_by(desc(NetworkCollector.created_at)).limit(200))
+async def list_collectors(db: AsyncSession, user: User | None = None) -> list[NetworkCollector]:
+    q = select(NetworkCollector).order_by(desc(NetworkCollector.created_at)).limit(200)
+    if user and user.role != "administrator":
+        from airgrid.services.campus_service import get_authorized_campus_ids
+        authorized_ids = await get_authorized_campus_ids(db, user)
+        if authorized_ids:
+            q = q.where(NetworkCollector.campus_id.in_(authorized_ids) | NetworkCollector.campus_id.is_(None))
+        else:
+            q = q.where(NetworkCollector.campus_id.is_(None))
+    result = await db.execute(q)
     return list(result.scalars())
 
 
-async def list_observations(db: AsyncSession, collector_id: uuid.UUID, limit: int) -> list[NetworkTelemetrySnapshot]:
-    await _get_or_404(db, collector_id)
+async def list_observations(db: AsyncSession, collector_id: uuid.UUID, limit: int, user: User | None = None) -> list[NetworkTelemetrySnapshot]:
+    collector = await _get_or_404(db, collector_id)
+    if user and user.role != "administrator" and collector.campus_id:
+        from airgrid.services.campus_service import require_campus_access
+        await require_campus_access(db, user, collector.campus_id)
     result = await db.execute(select(NetworkTelemetrySnapshot)
                               .where(NetworkTelemetrySnapshot.collector_id == collector_id)
                               .order_by(desc(NetworkTelemetrySnapshot.collected_at)).limit(limit))
