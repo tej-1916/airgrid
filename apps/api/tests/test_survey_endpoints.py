@@ -47,6 +47,7 @@ async def engineer_auth(client: AsyncClient):
     assert login_resp.status_code == 200
     csrf_token = login_resp.json()["csrf_token"]
     cookies = {"airgrid_session": login_resp.cookies["airgrid_session"]}
+    client.cookies = cookies
 
     yield {
         "user": user,
@@ -94,6 +95,7 @@ async def viewer_auth(client: AsyncClient):
     assert login_resp.status_code == 200
     csrf_token = login_resp.json()["csrf_token"]
     cookies = {"airgrid_session": login_resp.cookies["airgrid_session"]}
+    client.cookies = cookies
 
     yield {
         "user": user,
@@ -192,7 +194,6 @@ async def test_create_survey(client: AsyncClient, engineer_auth, test_survey_hie
             "session_name": "RF Survey Session A",
             "description": "Baseline coverage assessment",
         },
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     assert resp.status_code == 201
@@ -215,7 +216,6 @@ async def test_get_and_list_surveys(client: AsyncClient, engineer_auth, test_sur
             "floor_id": str(floor.id),
             "session_name": "Session for Retrieval",
         },
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     assert create_resp.status_code == 201
@@ -224,7 +224,6 @@ async def test_get_and_list_surveys(client: AsyncClient, engineer_auth, test_sur
     # 1. Get single survey
     get_resp = await client.get(
         f"/api/v1/surveys/{survey_id}",
-        cookies=engineer_auth["cookies"],
     )
     assert get_resp.status_code == 200
     assert get_resp.json()["id"] == survey_id
@@ -233,7 +232,6 @@ async def test_get_and_list_surveys(client: AsyncClient, engineer_auth, test_sur
     # 2. List surveys with floor filter
     list_resp = await client.get(
         f"/api/v1/surveys?floor_id={floor.id}",
-        cookies=engineer_auth["cookies"],
     )
     assert list_resp.status_code == 200
     list_data = list_resp.json()
@@ -248,7 +246,6 @@ async def test_update_and_complete_survey(client: AsyncClient, engineer_auth, te
     create_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Active Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = create_resp.json()["id"]
@@ -257,7 +254,6 @@ async def test_update_and_complete_survey(client: AsyncClient, engineer_auth, te
     patch_resp = await client.patch(
         f"/api/v1/surveys/{survey_id}",
         json={"description": "Updated notes on Wi-Fi test"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     assert patch_resp.status_code == 200
@@ -266,7 +262,6 @@ async def test_update_and_complete_survey(client: AsyncClient, engineer_auth, te
     # Complete survey
     complete_resp = await client.post(
         f"/api/v1/surveys/{survey_id}/complete",
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     assert complete_resp.status_code == 200
@@ -285,7 +280,6 @@ async def test_valid_measurement_creation(client: AsyncClient, engineer_auth, te
     create_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Measurement Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = create_resp.json()["id"]
@@ -306,7 +300,6 @@ async def test_valid_measurement_creation(client: AsyncClient, engineer_auth, te
             "notes": "Near conference room doorway",
             "data_provenance": "operator_reported",
         },
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     assert m_resp.status_code == 201
@@ -327,7 +320,6 @@ async def test_invalid_rssi_bounds_rejection(client: AsyncClient, engineer_auth,
     create_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Bounds Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = create_resp.json()["id"]
@@ -336,7 +328,6 @@ async def test_invalid_rssi_bounds_rejection(client: AsyncClient, engineer_auth,
     resp_too_high = await client.post(
         f"/api/v1/surveys/{survey_id}/measurements",
         json={"floor_id": str(floor.id), "position_x": 100, "position_y": 100, "rssi_dbm": -10.0},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     assert resp_too_high.status_code == 422
@@ -345,7 +336,6 @@ async def test_invalid_rssi_bounds_rejection(client: AsyncClient, engineer_auth,
     resp_too_low = await client.post(
         f"/api/v1/surveys/{survey_id}/measurements",
         json={"floor_id": str(floor.id), "position_x": 100, "position_y": 100, "rssi_dbm": -115.0},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     assert resp_too_low.status_code == 422
@@ -359,7 +349,6 @@ async def test_invalid_coordinates_exceeding_bounds(client: AsyncClient, enginee
     create_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Coord Bounds Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = create_resp.json()["id"]
@@ -368,7 +357,6 @@ async def test_invalid_coordinates_exceeding_bounds(client: AsyncClient, enginee
     resp = await client.post(
         f"/api/v1/surveys/{survey_id}/measurements",
         json={"floor_id": str(floor.id), "position_x": 1250.0, "position_y": 300.0, "rssi_dbm": -65.0},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     assert resp.status_code == 422
@@ -383,7 +371,6 @@ async def test_wrong_floor_association_rejection(client: AsyncClient, engineer_a
     create_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Floor Mismatch Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = create_resp.json()["id"]
@@ -392,7 +379,6 @@ async def test_wrong_floor_association_rejection(client: AsyncClient, engineer_a
     resp = await client.post(
         f"/api/v1/surveys/{survey_id}/measurements",
         json={"floor_id": other_floor_id, "position_x": 100.0, "position_y": 100.0, "rssi_dbm": -65.0},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     assert resp.status_code == 422
@@ -411,7 +397,6 @@ async def test_viewer_read_only_access_permitted(client: AsyncClient, viewer_aut
     create_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Viewer Check Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = create_resp.json()["id"]
@@ -419,7 +404,6 @@ async def test_viewer_read_only_access_permitted(client: AsyncClient, viewer_aut
     # Viewer can read
     view_resp = await client.get(
         f"/api/v1/surveys/{survey_id}",
-        cookies=viewer_auth["cookies"],
     )
     assert view_resp.status_code == 200
 
@@ -427,7 +411,6 @@ async def test_viewer_read_only_access_permitted(client: AsyncClient, viewer_aut
     mutate_resp = await client.post(
         f"/api/v1/surveys/{survey_id}/measurements",
         json={"floor_id": str(floor.id), "position_x": 100, "position_y": 100, "rssi_dbm": -60.0},
-        cookies=viewer_auth["cookies"],
         headers=viewer_auth["headers"],
     )
     assert mutate_resp.status_code == 403
@@ -455,7 +438,6 @@ async def test_duplicate_position_handling(client: AsyncClient, engineer_auth, t
     create_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Dedup Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = create_resp.json()["id"]
@@ -464,7 +446,6 @@ async def test_duplicate_position_handling(client: AsyncClient, engineer_auth, t
     r1 = await client.post(
         f"/api/v1/surveys/{survey_id}/measurements",
         json={"floor_id": str(floor.id), "position_x": 200.0, "position_y": 200.0, "rssi_dbm": -65.0, "notes": "Initial reading"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     assert r1.status_code == 201
@@ -474,7 +455,6 @@ async def test_duplicate_position_handling(client: AsyncClient, engineer_auth, t
     r2 = await client.post(
         f"/api/v1/surveys/{survey_id}/measurements",
         json={"floor_id": str(floor.id), "position_x": 200.2, "position_y": 200.1, "rssi_dbm": -55.0, "notes": "Updated reading"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     assert r2.status_code == 201
@@ -485,7 +465,6 @@ async def test_duplicate_position_handling(client: AsyncClient, engineer_auth, t
     # Verify single measurement in listing
     list_m = await client.get(
         f"/api/v1/surveys/{survey_id}/measurements",
-        cookies=engineer_auth["cookies"],
     )
     assert len(list_m.json()) == 1
 
@@ -497,7 +476,6 @@ async def test_delete_measurement(client: AsyncClient, engineer_auth, test_surve
     create_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Delete Test Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = create_resp.json()["id"]
@@ -505,7 +483,6 @@ async def test_delete_measurement(client: AsyncClient, engineer_auth, test_surve
     m_resp = await client.post(
         f"/api/v1/surveys/{survey_id}/measurements",
         json={"floor_id": str(floor.id), "position_x": 300.0, "position_y": 300.0, "rssi_dbm": -70.0},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     measurement_id = m_resp.json()["id"]
@@ -513,7 +490,6 @@ async def test_delete_measurement(client: AsyncClient, engineer_auth, test_surve
     # Delete measurement
     del_resp = await client.delete(
         f"/api/v1/surveys/{survey_id}/measurements/{measurement_id}",
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     assert del_resp.status_code == 204
@@ -521,7 +497,6 @@ async def test_delete_measurement(client: AsyncClient, engineer_auth, test_surve
     # Verify deletion
     list_resp = await client.get(
         f"/api/v1/surveys/{survey_id}/measurements",
-        cookies=engineer_auth["cookies"],
     )
     assert len(list_resp.json()) == 0
 
@@ -537,7 +512,6 @@ async def test_sparse_measurement_rejection(client: AsyncClient, engineer_auth, 
     create_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Sparse Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = create_resp.json()["id"]
@@ -547,14 +521,12 @@ async def test_sparse_measurement_rejection(client: AsyncClient, engineer_auth, 
         await client.post(
             f"/api/v1/surveys/{survey_id}/measurements",
             json={"floor_id": str(floor.id), "position_x": x, "position_y": y, "rssi_dbm": rssi},
-            cookies=engineer_auth["cookies"],
             headers=engineer_auth["headers"],
         )
 
     # Attempt heatmap generation
     resp = await client.get(
         f"/api/v1/surveys/{survey_id}/heatmap",
-        cookies=engineer_auth["cookies"],
     )
     assert resp.status_code == 422
     assert "insufficient survey measurements" in resp.json()["detail"].lower()
@@ -567,7 +539,6 @@ async def test_collinear_measurement_rejection(client: AsyncClient, engineer_aut
     create_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Collinear Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = create_resp.json()["id"]
@@ -577,13 +548,11 @@ async def test_collinear_measurement_rejection(client: AsyncClient, engineer_aut
         await client.post(
             f"/api/v1/surveys/{survey_id}/measurements",
             json={"floor_id": str(floor.id), "position_x": x, "position_y": 200.0, "rssi_dbm": -60.0},
-            cookies=engineer_auth["cookies"],
             headers=engineer_auth["headers"],
         )
 
     resp = await client.get(
         f"/api/v1/surveys/{survey_id}/heatmap",
-        cookies=engineer_auth["cookies"],
     )
     assert resp.status_code == 422
     assert "collinear" in resp.json()["detail"].lower()
@@ -596,7 +565,6 @@ async def test_heatmap_idw_interpolation_and_masking(client: AsyncClient, engine
     create_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Full Heatmap Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = create_resp.json()["id"]
@@ -613,13 +581,11 @@ async def test_heatmap_idw_interpolation_and_masking(client: AsyncClient, engine
         await client.post(
             f"/api/v1/surveys/{survey_id}/measurements",
             json={"floor_id": str(floor.id), "position_x": x, "position_y": y, "rssi_dbm": rssi},
-            cookies=engineer_auth["cookies"],
             headers=engineer_auth["headers"],
         )
 
     resp = await client.get(
         f"/api/v1/surveys/{survey_id}/heatmap?grid_cols=60&grid_rows=40",
-        cookies=engineer_auth["cookies"],
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -659,7 +625,6 @@ async def test_survey_summary_calculations(client: AsyncClient, engineer_auth, t
     create_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Stats Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = create_resp.json()["id"]
@@ -672,13 +637,11 @@ async def test_survey_summary_calculations(client: AsyncClient, engineer_auth, t
         await client.post(
             f"/api/v1/surveys/{survey_id}/measurements",
             json={"floor_id": str(floor.id), "position_x": x, "position_y": y, "rssi_dbm": rssi, "measurement_source": src},
-            cookies=engineer_auth["cookies"],
             headers=engineer_auth["headers"],
         )
 
     analysis_resp = await client.get(
         f"/api/v1/surveys/{survey_id}/analysis",
-        cookies=engineer_auth["cookies"],
     )
     assert analysis_resp.status_code == 200
     stats = analysis_resp.json()
@@ -698,14 +661,12 @@ async def test_historical_survey_comparison(client: AsyncClient, engineer_auth, 
     s1 = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Pre-Optimization Survey"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     s1_id = s1.json()["id"]
     await client.post(
         f"/api/v1/surveys/{s1_id}/measurements",
         json={"floor_id": str(floor.id), "position_x": 100.0, "position_y": 100.0, "rssi_dbm": -75.0},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
 
@@ -713,26 +674,22 @@ async def test_historical_survey_comparison(client: AsyncClient, engineer_auth, 
     s2 = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Post-Optimization Survey"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     s2_id = s2.json()["id"]
     await client.post(
         f"/api/v1/surveys/{s2_id}/measurements",
         json={"floor_id": str(floor.id), "position_x": 100.0, "position_y": 100.0, "rssi_dbm": -55.0},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     await client.post(
         f"/api/v1/surveys/{s2_id}/measurements",
         json={"floor_id": str(floor.id), "position_x": 200.0, "position_y": 200.0, "rssi_dbm": -58.0},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
 
     compare_resp = await client.get(
         f"/api/v1/surveys/compare?session1={s1_id}&session2={s2_id}",
-        cookies=engineer_auth["cookies"],
     )
     assert compare_resp.status_code == 200
     comp = compare_resp.json()
@@ -744,7 +701,6 @@ async def test_historical_survey_comparison(client: AsyncClient, engineer_auth, 
 async def test_host_telemetry_safe_query(client: AsyncClient, engineer_auth):
     resp = await client.get(
         "/api/v1/surveys/client-telemetry/status",
-        cookies=engineer_auth["cookies"],
     )
     assert resp.status_code == 200
     data = resp.json()
@@ -763,7 +719,6 @@ async def test_cross_network_contamination_protection(client: AsyncClient, engin
     survey_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Multi-SSID Walkthrough"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = survey_resp.json()["id"]
@@ -780,7 +735,6 @@ async def test_cross_network_contamination_protection(client: AsyncClient, engin
                 "rssi_dbm": rssi,
                 "network_label": "Staff-Secure",
             },
-            cookies=engineer_auth["cookies"],
             headers=engineer_auth["headers"],
         )
 
@@ -796,14 +750,12 @@ async def test_cross_network_contamination_protection(client: AsyncClient, engin
                 "rssi_dbm": rssi,
                 "network_label": "Guest-Open",
             },
-            cookies=engineer_auth["cookies"],
             headers=engineer_auth["headers"],
         )
 
     # Request without filter -> Must be rejected with 422 to prevent cross-network contamination
     unfiltered_resp = await client.get(
         f"/api/v1/surveys/{survey_id}/heatmap",
-        cookies=engineer_auth["cookies"],
     )
     assert unfiltered_resp.status_code == 422
     err_msg = unfiltered_resp.json()["detail"]
@@ -814,7 +766,6 @@ async def test_cross_network_contamination_protection(client: AsyncClient, engin
     # Request with network_label='Staff-Secure' -> succeeds with filtered points only
     staff_resp = await client.get(
         f"/api/v1/surveys/{survey_id}/heatmap?network_label=Staff-Secure",
-        cookies=engineer_auth["cookies"],
     )
     assert staff_resp.status_code == 200
     staff_data = staff_resp.json()
@@ -825,7 +776,6 @@ async def test_cross_network_contamination_protection(client: AsyncClient, engin
     # Request with network_label='Guest-Open' -> succeeds with filtered points only
     guest_resp = await client.get(
         f"/api/v1/surveys/{survey_id}/heatmap?network_label=Guest-Open",
-        cookies=engineer_auth["cookies"],
     )
     assert guest_resp.status_code == 200
     guest_data = guest_resp.json()
@@ -844,7 +794,6 @@ async def test_convex_hull_spatial_support_mask(client: AsyncClient, engineer_au
     survey_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Corner Survey Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = survey_resp.json()["id"]
@@ -860,14 +809,12 @@ async def test_convex_hull_spatial_support_mask(client: AsyncClient, engineer_au
         await client.post(
             f"/api/v1/surveys/{survey_id}/measurements",
             json={"floor_id": str(floor.id), "position_x": x, "position_y": y, "rssi_dbm": rssi},
-            cookies=engineer_auth["cookies"],
             headers=engineer_auth["headers"],
         )
 
     # Request heatmap
     h_resp = await client.get(
         f"/api/v1/surveys/{survey_id}/heatmap",
-        cookies=engineer_auth["cookies"],
     )
     assert h_resp.status_code == 200
     h_data = h_resp.json()
@@ -892,7 +839,6 @@ async def test_widely_separated_measurements_masking(client: AsyncClient, engine
     survey_resp = await client.post(
         "/api/v1/surveys",
         json={"floor_id": str(floor.id), "session_name": "Widely Separated Session"},
-        cookies=engineer_auth["cookies"],
         headers=engineer_auth["headers"],
     )
     survey_id = survey_resp.json()["id"]
@@ -908,7 +854,6 @@ async def test_widely_separated_measurements_masking(client: AsyncClient, engine
         resp = await client.post(
             f"/api/v1/surveys/{survey_id}/measurements",
             json={"floor_id": str(floor.id), "position_x": x, "position_y": y, "rssi_dbm": rssi},
-            cookies=engineer_auth["cookies"],
             headers=engineer_auth["headers"],
         )
         assert resp.status_code == 201
@@ -916,7 +861,6 @@ async def test_widely_separated_measurements_masking(client: AsyncClient, engine
     # Request heatmap with 80 cols x 50 rows
     h_resp = await client.get(
         f"/api/v1/surveys/{survey_id}/heatmap?grid_cols=80&grid_rows=50",
-        cookies=engineer_auth["cookies"],
     )
     assert h_resp.status_code == 200
     h_data = h_resp.json()

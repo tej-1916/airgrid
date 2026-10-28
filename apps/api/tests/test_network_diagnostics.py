@@ -225,6 +225,8 @@ async def engineer_auth(client: AsyncClient):
     csrf_token = login_resp.json()["csrf_token"]
     cookies = {"airgrid_session": login_resp.cookies["airgrid_session"]}
 
+    client.cookies = cookies
+
     yield {
         "user": user,
         "email": email,
@@ -260,6 +262,8 @@ async def viewer_auth(client: AsyncClient):
     csrf_token = login_resp.json()["csrf_token"]
     cookies = {"airgrid_session": login_resp.cookies["airgrid_session"]}
 
+    client.cookies = cookies
+
     yield {
         "user": user,
         "email": email,
@@ -270,10 +274,8 @@ async def viewer_auth(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_get_interfaces_endpoint(client: AsyncClient, engineer_auth: dict):
-    res = await client.get(
-        "/api/v1/diagnostics/interfaces",
-        cookies=engineer_auth["cookies"],
-    )
+    client.cookies = engineer_auth["cookies"]
+    res = await client.get("/api/v1/diagnostics/interfaces")
     assert res.status_code == 200
     data = res.json()
     assert "interfaces" in data
@@ -283,10 +285,10 @@ async def test_get_interfaces_endpoint(client: AsyncClient, engineer_auth: dict)
 
 @pytest.mark.asyncio
 async def test_collect_telemetry_consent_enforcement(client: AsyncClient, engineer_auth: dict):
+    client.cookies = engineer_auth["cookies"]
     # Refuse consent -> 400 Bad Request
     res = await client.post(
         "/api/v1/diagnostics/collect",
-        cookies=engineer_auth["cookies"],
         headers={"X-CSRF-Token": engineer_auth["csrf_token"]},
         json={"operator_consent": False},
     )
@@ -296,9 +298,9 @@ async def test_collect_telemetry_consent_enforcement(client: AsyncClient, engine
 
 @pytest.mark.asyncio
 async def test_collect_telemetry_success(client: AsyncClient, engineer_auth: dict):
+    client.cookies = engineer_auth["cookies"]
     res = await client.post(
         "/api/v1/diagnostics/collect",
-        cookies=engineer_auth["cookies"],
         headers={"X-CSRF-Token": engineer_auth["csrf_token"]},
         json={
             "operator_consent": True,
@@ -314,9 +316,9 @@ async def test_collect_telemetry_success(client: AsyncClient, engineer_auth: dic
 
 @pytest.mark.asyncio
 async def test_ping_gateway_endpoint(client: AsyncClient, engineer_auth: dict):
+    client.cookies = engineer_auth["cookies"]
     res = await client.post(
         "/api/v1/diagnostics/ping-gateway",
-        cookies=engineer_auth["cookies"],
         headers={"X-CSRF-Token": engineer_auth["csrf_token"]},
         json={
             "gateway_ip": "127.0.0.1",
@@ -337,6 +339,7 @@ async def test_analyze_and_persist_diagnostic_report(
     engineer_auth: dict,
     viewer_auth: dict,
 ):
+    client.cookies = engineer_auth["cookies"]
     # Create diagnostic report by analyzing simulated telemetry
     mock_telemetry = {
         "interface_name": "wlp0s20f3",
@@ -364,7 +367,6 @@ async def test_analyze_and_persist_diagnostic_report(
 
     create_res = await client.post(
         "/api/v1/diagnostics/analyze",
-        cookies=engineer_auth["cookies"],
         headers={"X-CSRF-Token": engineer_auth["csrf_token"]},
         json={
             "title": "Automated Test Wi-Fi Diagnostic Run",
@@ -381,20 +383,14 @@ async def test_analyze_and_persist_diagnostic_report(
     report_id = report["id"]
 
     # List reports
-    list_res = await client.get(
-        "/api/v1/diagnostics/reports",
-        cookies=engineer_auth["cookies"],
-    )
+    list_res = await client.get("/api/v1/diagnostics/reports")
     assert list_res.status_code == 200
     list_data = list_res.json()
     assert list_data["total"] >= 1
     assert any(r["id"] == report_id for r in list_data["reports"])
 
     # Get single report
-    get_res = await client.get(
-        f"/api/v1/diagnostics/reports/{report_id}",
-        cookies=engineer_auth["cookies"],
-    )
+    get_res = await client.get(f"/api/v1/diagnostics/reports/{report_id}")
     assert get_res.status_code == 200
     single_data = get_res.json()
     assert single_data["id"] == report_id
@@ -402,35 +398,33 @@ async def test_analyze_and_persist_diagnostic_report(
 
     analyst = await client.post(
         "/api/v1/analyst/analyze", json={"report_id": report_id},
-        cookies=engineer_auth["cookies"], headers={"X-CSRF-Token": engineer_auth["csrf_token"]})
+        headers={"X-CSRF-Token": engineer_auth["csrf_token"]})
     assert analyst.status_code == 200
     assert analyst.json()["mode"] == "deterministic"
     assert analyst.json()["evidence"][0]["value"] == -64
     assert report["data_provenance"] == "operator_reported"
+
+    client.cookies = viewer_auth["cookies"]
     viewer_analysis = await client.post(
         "/api/v1/analyst/analyze", json={"report_id": report_id},
-        cookies=viewer_auth["cookies"], headers={"X-CSRF-Token": viewer_auth["csrf_token"]})
+        headers={"X-CSRF-Token": viewer_auth["csrf_token"]})
     assert viewer_analysis.status_code == 403
 
     # Viewer role CANNOT delete report (403 Forbidden)
     viewer_del = await client.delete(
         f"/api/v1/diagnostics/reports/{report_id}",
-        cookies=viewer_auth["cookies"],
         headers={"X-CSRF-Token": viewer_auth["csrf_token"]},
     )
     assert viewer_del.status_code == 403
 
     # Engineer role CAN delete report (200 OK)
+    client.cookies = engineer_auth["cookies"]
     del_res = await client.delete(
         f"/api/v1/diagnostics/reports/{report_id}",
-        cookies=engineer_auth["cookies"],
         headers={"X-CSRF-Token": engineer_auth["csrf_token"]},
     )
     assert del_res.status_code == 200
 
     # Confirm deletion
-    get_again = await client.get(
-        f"/api/v1/diagnostics/reports/{report_id}",
-        cookies=engineer_auth["cookies"],
-    )
+    get_again = await client.get(f"/api/v1/diagnostics/reports/{report_id}")
     assert get_again.status_code == 404

@@ -163,10 +163,8 @@ async def test_session_hydration_and_me_endpoint(client: AsyncClient, test_admin
     session_cookie = login_resp.cookies["airgrid_session"]
 
     # Call /me with cookie
-    resp_me = await client.get(
-        "/api/v1/auth/me",
-        cookies={"airgrid_session": session_cookie},
-    )
+    client.cookies = {"airgrid_session": session_cookie}
+    resp_me = await client.get("/api/v1/auth/me")
     assert resp_me.status_code == 200
     me_data = resp_me.json()
     assert me_data["authenticated"] is True
@@ -183,6 +181,7 @@ async def test_csrf_protection_on_mutating_requests(client: AsyncClient, test_ad
         json={"email": test_admin_user["email"], "password": test_admin_user["password"]},
     )
     session_cookie = login_resp.cookies["airgrid_session"]
+    client.cookies = {"airgrid_session": session_cookie}
     csrf_token = login_resp.json()["csrf_token"]
 
     new_user_payload = {
@@ -196,7 +195,6 @@ async def test_csrf_protection_on_mutating_requests(client: AsyncClient, test_ad
     resp_no_csrf = await client.post(
         "/api/v1/auth/users",
         json=new_user_payload,
-        cookies={"airgrid_session": session_cookie},
     )
     assert resp_no_csrf.status_code == 403
     assert "CSRF validation failed" in resp_no_csrf.json()["detail"]
@@ -206,7 +204,6 @@ async def test_csrf_protection_on_mutating_requests(client: AsyncClient, test_ad
         "/api/v1/auth/users",
         json=new_user_payload,
         headers={"X-CSRF-Token": "invalid-token"},
-        cookies={"airgrid_session": session_cookie},
     )
     assert resp_bad_csrf.status_code == 403
 
@@ -215,7 +212,6 @@ async def test_csrf_protection_on_mutating_requests(client: AsyncClient, test_ad
         "/api/v1/auth/users",
         json=new_user_payload,
         headers={"X-CSRF-Token": csrf_token},
-        cookies={"airgrid_session": session_cookie},
     )
     assert resp_valid.status_code == 201
     created_user = resp_valid.json()
@@ -232,12 +228,10 @@ async def test_role_based_access_control(client: AsyncClient, test_admin_user, t
     )
     viewer_cookie = viewer_login.cookies["airgrid_session"]
     viewer_csrf = viewer_login.json()["csrf_token"]
+    client.cookies = {"airgrid_session": viewer_cookie}
 
     # Viewer attempts to list all users -> must be Forbidden (403)
-    resp_forbidden = await client.get(
-        "/api/v1/auth/users",
-        cookies={"airgrid_session": viewer_cookie},
-    )
+    resp_forbidden = await client.get("/api/v1/auth/users")
     assert resp_forbidden.status_code == 403
     assert "Forbidden" in resp_forbidden.json()["detail"]
 
@@ -246,7 +240,6 @@ async def test_role_based_access_control(client: AsyncClient, test_admin_user, t
         "/api/v1/auth/users",
         json={"email": "hacker@test.com", "password": "Password123!", "full_name": "Hacker", "role": "admin"},
         headers={"X-CSRF-Token": viewer_csrf},
-        cookies={"airgrid_session": viewer_cookie},
     )
     assert resp_create_forbidden.status_code == 403
 
@@ -256,12 +249,10 @@ async def test_role_based_access_control(client: AsyncClient, test_admin_user, t
         json={"email": test_admin_user["email"], "password": test_admin_user["password"]},
     )
     admin_cookie = admin_login.cookies["airgrid_session"]
+    client.cookies = {"airgrid_session": admin_cookie}
 
     # Admin lists users -> must succeed (200)
-    resp_admin = await client.get(
-        "/api/v1/auth/users",
-        cookies={"airgrid_session": admin_cookie},
-    )
+    resp_admin = await client.get("/api/v1/auth/users")
     assert resp_admin.status_code == 200
     user_list = resp_admin.json()
     assert isinstance(user_list, list)
@@ -277,23 +268,23 @@ async def test_logout_and_session_invalidation(client: AsyncClient, test_viewer_
     )
     session_cookie = login_resp.cookies["airgrid_session"]
     csrf_token = login_resp.json()["csrf_token"]
+    client.cookies = {"airgrid_session": session_cookie}
 
     # Verify active session works
-    resp_me = await client.get("/api/v1/auth/me", cookies={"airgrid_session": session_cookie})
+    resp_me = await client.get("/api/v1/auth/me")
     assert resp_me.status_code == 200
 
     # Logout
     logout_resp = await client.post(
         "/api/v1/auth/logout",
         headers={"X-CSRF-Token": csrf_token},
-        cookies={"airgrid_session": session_cookie},
     )
     assert logout_resp.status_code == 200
     assert logout_resp.json()["message"] == "Logged out successfully"
 
-    # Verify session cookie was deleted/cleared in response
     # Subsequent calls with old session cookie must return 401
-    resp_after = await client.get("/api/v1/auth/me", cookies={"airgrid_session": session_cookie})
+    client.cookies = {"airgrid_session": session_cookie}
+    resp_after = await client.get("/api/v1/auth/me")
     assert resp_after.status_code == 401
 
 
