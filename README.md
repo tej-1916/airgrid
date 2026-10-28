@@ -1,144 +1,91 @@
-# AIRGRID
+# AirGrid
 
-> **AI-Powered Campus Network Intelligence, Monitoring and Optimization Platform**
+AirGrid records campus network measurements, maps operator Wi-Fi surveys, evaluates spatial RSSI models, and helps operators decide what to measure next. It uses measured values and explicit unavailable states. It does not automatically configure network infrastructure.
 
-AirGrid is an enterprise network intelligence platform designed for large-scale university campuses, corporate headquarters, and multi-tenant facilities. It unifies active Wi-Fi coverage mapping, client-side speed measurement, RF signal prediction via machine learning, simulated AP placement optimization, provider-independent AI diagnostics, and event-driven automation via n8n.
+The application is a modular monolith: React **18**, TypeScript, Vite and Tailwind in `apps/web`; Python 3.12+, FastAPI, Pydantic, SQLAlchemy and Alembic in `apps/api`; PostgreSQL for application data. Shared TypeScript contracts live in `packages/shared-contracts`.
 
----
+## Current capabilities
 
-## Architecture Overview
+| Route | Implemented behavior |
+|---|---|
+| `/` | Existing premium landing page |
+| `/auth/login` | Argon2 passwords, server-side sessions, HttpOnly session cookies and CSRF protection |
+| `/dashboard` | Database inventory counts and audit activity |
+| `/campuses` | Campus/building/floor hierarchy, protected plan uploads and calibration |
+| `/speed-test` | Operator-started Cloudflare browser throughput, latency and jitter tests; persisted history |
+| `/heatmaps` | Survey sessions, manual observations, history/comparison and IDW interpolation with spatial support masks |
+| `/ml-lab` | Readiness checks, KNN/Random Forest/HistGradientBoosting training, held-out evaluation, mean/IDW baselines, model history and prediction maps |
+| `/diagnostics` | Opt-in Linux backend collector, bounded gateway checks, allowlisted iperf, persisted reports and deterministic findings |
+| `/ai-analyst` | Local explanations of saved diagnostic reports, evidence references, printable report and optional constrained AI prioritization |
+| `/optimization` | Floor/network-specific survey opportunities, weak observations, measurement plans, speculative AP markers, two candidate plans and JSON/print export |
 
-AirGrid is structured as a **modular monolith** in an organized monorepo:
+`/network-tools` and `/network-diagnostics` redirect to `/diagnostics`; `/ap-optimization` uses the optimization workspace. Other existing routes remain, including placeholder device, monitor, model-control, alert and report pages. Their navigation does not imply implemented monitoring or SLA reporting. See [route status](docs/architecture/FRONTEND_ROUTES.md).
 
-```
-airgrid/
-├── apps/
-│   ├── api/                   # FastAPI Backend (Modular Monolith)
-│   └── web/                   # React 19 + TypeScript + Vite SPA
-├── packages/
-│   └── shared-contracts/      # Shared TypeScript types and API schemas
-├── infrastructure/
-│   ├── docker/                # Production & Development container Dockerfiles
-│   └── n8n/                   # Automation workflows & signed webhook integration
-├── docs/
-│   ├── architecture/          # System specifications & design blueprints
-│   │   ├── SYSTEM_ARCHITECTURE.md
-│   │   ├── DATABASE_DESIGN.md
-│   │   ├── API_CONTRACTS.md
-│   │   ├── NETWORK_TESTING_DESIGN.md
-│   │   ├── AI_GATEWAY_DESIGN.md
-│   │   ├── N8N_AUTOMATION_DESIGN.md
-│   │   └── FRONTEND_ROUTES.md
-│   └── phases/                # Phase milestone handoffs
-├── docker-compose.yml         # Container orchestration for local dev
-├── .env.example               # Environment template
-└── README.md
-```
+## Measurement integrity and limitations
 
----
+- Manual observations remain `operator_reported`. Controlled imports and estimates are excluded from operational training and optimization evidence. Instrument-verified survey ingestion still needs an authenticated collector registration/import workflow.
+- The inspected development dataset has **zero instrument-verified survey observations**. Operational ML training is correctly unavailable. Test models use isolated fixtures, not campus data.
+- ML evaluation holds out sessions or spatial blocks. Comparisons use the same supported held-out points for ML, mean and the Phase 04 physical IDW baseline. Unsupported regions are masked. Small evaluations are not represented as statistically established quality.
+- Artifact paths, checksums and scikit-learn versions are checked before loading locally generated model bytes. Legacy artifacts without those checks must be retrained. Artifacts and uploads are excluded from Git.
+- Backend wireless measurements describe the **backend server**, not the browser device. Browser-supplied snapshots are downgraded to operator-reported evidence. An authenticated server-owned snapshot workflow remains open.
+- Diagnostics use documented heuristic thresholds, timestamps, uncertainty and next checks. They do not establish congestion, AP faults, WAN bottlenecks or full network health from a single sample.
+- Candidate AP markers are speculative annotations. No wall attenuation, physical accessibility, optimized placement or numerical gains are inferred. Plans live in the page and must be exported before navigation or changing scope.
+- Collector registration, retention controls, telemetry trend charts, persisted candidate plans, broader cross-session/heatmap/ML reports and measured before/after analysis remain unfinished. Phase 05–08 handoffs distinguish these gaps from implemented slices.
+- Dedicated automation product routes/navigation are removed. Internal webhook signing remains for application infrastructure; no scheduled network actions are enabled.
 
-## Technology Stack
+## Local startup
 
-- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, React Router, Lucide Icons
-- **Backend:** Python 3.12+, FastAPI, Pydantic v2, SQLAlchemy 2.0, Alembic, Pytest
-- **Database:** PostgreSQL 16+
-- **Machine Learning:** NumPy, SciPy, scikit-learn, Joblib
-- **AI Gateway:** Provider-independent adapter layer (OpenAI-compatible / Groq / Local) with model verification & fallback auditing
-- **Automation:** n8n with HMAC-SHA256 signed webhooks and replay defense
-- **Tooling:** `uv` (Python package & environment manager), `npm`, Docker & Docker Compose
+Use the existing root `.env` as appropriate; never commit it. Configuration is read relative to the process working directory, so export required values when starting commands in a subdirectory. Keep the API on loopback for local development.
 
----
-
-## 16 Application Pages (Route Map)
-
-| No. | Page Title | Route Path | Purpose |
-|---|---|---|---|
-| 01 | Landing Page | `/` | Platform introduction, architecture overview & sign-in |
-| 02 | Login & Authentication | `/auth/login` | Secure role-based operator authentication |
-| 03 | Command Center | `/dashboard` | High-level network status, active surveys, and system alerts |
-| 04 | Campus & Building Manager | `/campuses` | Physical hierarchy management (Campuses, Buildings, Floors) |
-| 05 | Wi-Fi Heatmap Studio | `/heatmaps` | 2D floor plans, RF signal propagation layers, and dead-zones |
-| 06 | Network Speed Test Lab | `/speed-test` | Client-side active WAN throughput, latency, and jitter tests |
-| 07 | Device & Access Point Manager | `/devices` | Inventory of campus APs and field measurement devices |
-| 08 | Live Network Monitor | `/monitor` | Real-time AP telemetry, status alerts, and signal fluctuations |
-| 09 | AI Diagnostics Studio | `/ai-diagnostics` | Natural language network diagnostics and root cause analysis |
-| 10 | AI Model Control Center | `/ai-models` | Model provider configuration, audit trail, and verification |
-| 11 | ML Prediction Lab | `/ml-lab` | RF path-loss model training, evaluations, and champion tracking |
-| 12 | AP Optimization Studio | `/ap-optimization` | Coverage simulations and algorithmic AP placement recommendations |
-| 13 | n8n Automation Center | `/automations` | Webhook subscription management and delivery audit logs |
-| 14 | Alerts & Notifications | `/alerts` | Incident inbox for network degradation and dead-zone alerts |
-| 15 | Analytics & Reports | `/reports` | Long-term performance trends and executive SLA summaries |
-| 16 | Settings & Administration | `/settings` | Global configurations, API keys, and audit logging |
-
----
-
-## Quickstart (Local Development)
-
-### Prerequisites
-- Node.js (v20+ recommended) & npm
-- Python (v3.12+ recommended) & `uv` package manager
-- Docker and Docker Compose (optional for local containers)
-
-### 1. Environment Setup
 ```bash
-# Clone and enter directory
-cd ~/Projects/airgrid
-
-# Copy environment template
-cp .env.example .env
-```
-
-### 2. Backend Setup (`apps/api`)
-```bash
+# Backend dependencies (existing uv.lock)
 cd apps/api
-
-# Create virtual environment and install dependencies via uv
-uv sync
-
-# Run database migrations
-uv run alembic upgrade head
-
-# Run automated tests
-uv run pytest -v
-
-# Start FastAPI development server
-uv run uvicorn airgrid.main:app --host 127.0.0.1 --port 8000 --reload
+uv sync --extra dev
+# Inspect before applying migrations to a database with genuine data:
+uv run alembic current
+uv run alembic heads
+uv run uvicorn airgrid.main:app --host 127.0.0.1 --port 8000
 ```
 
-### 3. Frontend Setup (`apps/web`)
 ```bash
+# Frontend, in another terminal
 cd apps/web
-
-# Install dependencies
-npm install
-
-# Run build check
-npm run build
-
-# Start Vite development server
+npm ci
 npm run dev
 ```
 
-The frontend will be available at `http://localhost:5173` and the backend at `http://localhost:8000`.
-Health endpoint: `http://localhost:8000/api/v1/health`
+The default browser URL is `http://127.0.0.1:5173`. Liveness is `/healthz`; detailed health is `/api/v1/health`. `docker compose up -d` is available for local services; this session did not rebuild or deploy containers. Migration head is `0007_network_diagnostics`; no new migration or destructive database action was run in this session.
 
-### 4. Running with Docker Compose
+## Collector configuration
+
+`AIRGRID_COLLECTOR_ENABLED=false` is the default. An operator must enable it on the authorized Linux host and explicitly initiate each collection. The UI starts consent and gateway probing unchecked. Collection reads connected-interface status; `nmcli --rescan no` avoids surrounding-network scans. No root escalation or passwords are requested.
+
+Gateway probing accepts only the discovered default gateway, with at most five probes. iperf supports bounded TCP tests only to literal IPs explicitly listed in `AIRGRID_AUTHORIZED_IPERF_TARGETS` (empty by default). Tests are not scheduled or automatically repeated. Missing tools/permission errors do not become fabricated packet loss.
+
+The CLI reuses the API collector and its dependencies:
+
 ```bash
-docker compose up -d
+# Only the returning operator should enable and invoke real collection:
+AIRGRID_COLLECTOR_ENABLED=true apps/api/.venv/bin/python packages/collector/airgrid_collector.py --collect --json
+# --ping is an additional explicit opt-in; omitted by default.
 ```
 
----
+## AI Gateway configuration
 
----
+The default is disabled with no endpoint, approved model or key. Configure `AIRGRID_AI_ENABLED`, `AIRGRID_AI_API_BASE_URL`, `AIRGRID_AI_DEFAULT_MODEL` and, when required, `AIRGRID_AI_API_KEY` server-side. HTTPS endpoints and credential-free loopback local providers are supported. No paid model is required.
 
-## Development Milestones & Phase Status
+Every generation requires explicit per-request approval. The Analyst sends only minimized metric values, severities and source IDs, never labels, addresses, user notes or plans. Provider output can only select existing finding IDs; added claims and unknown references are rejected. Local findings remain available on failure. Model identity is provider-reported, not independently verified. Requests have a timeout, zero retries, a completion cap of 1024 tokens and a per-process cap of ten generation requests per minute. Multiple API workers need a shared limiter before wider deployment.
 
-AirGrid is developed strictly phase by phase with automated tests and real-browser verification gates:
+## Verification
 
-- **Phase 00:** Foundation, modular monolith architecture, base schemas & 16 route shells ([Phase 00 Handoff](docs/phases/PHASE_00_HANDOFF.md)) — **Completed**
-- **Phase 01A:** Premium editorial landing page & brand identity ([Phase 01A Handoff](docs/phases/PHASE_01A_HANDOFF.md)) — **Completed**
-- **Phase 01B:** Secure role-based authentication, Argon2id, HttpOnly sessions & CSRF protection ([Phase 01B Handoff](docs/phases/PHASE_01B_HANDOFF.md)) — **Completed**
-- **Phase 02:** Command Center dashboard, Campus & Building Manager, floor plan upload & architectural scale calibration ([Phase 02 Handoff](docs/phases/PHASE_02_HANDOFF.md)) — **Completed**
-- **Phase 03:** Real Network Speed Test Lab, `@cloudflare/speedtest` adapter, client vantage point measurement, spatial facility association & PostgreSQL audit persistence ([Phase 03 Handoff](docs/phases/PHASE_03_HANDOFF.md)) — **Completed**
-- **Phase 04:** Wi-Fi Surveying & Active RF Coverage Heatmaps — *Next Phase*
+```bash
+# Repository root: pytest forces airgrid_test_db before importing the app.
+apps/api/.venv/bin/python -m pytest
+npm --prefix apps/web run build
+# Uses an installed/cached Playwright package and Chromium; no production API calls:
+AIRGRID_PLAYWRIGHT_MODULE=/path/to/playwright node docs/verification/verify_phase_06.cjs
+```
 
+The browser script expects a frontend at `http://127.0.0.1:5187` (override `AIRGRID_BROWSER_URL`), intercepts API calls with labeled fixtures, and blocks external requests. Start it with `npm --prefix apps/web run dev -- --port 5187`. It never logs in with production credentials, runs live probes, trains campus models or invokes external AI.
+
+See [baseline evidence](docs/verification/AUTONOMOUS_BUILD_BASELINE.md), [current progress](docs/development/AUTONOMOUS_PROGRESS.md), [recovery instructions](docs/development/RESUME_FROM_HERE.md), and [system architecture](docs/architecture/SYSTEM_ARCHITECTURE.md). Current verification results and phase acceptance limits are recorded there; historical completion claims are not a substitute for these results.

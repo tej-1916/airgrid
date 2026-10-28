@@ -1,6 +1,6 @@
 # Autonomous recovery checkpoint — 2026-10-28
 
-Branch: `feat/airgrid-real-network-intelligence`. Started at `9c3b457`; feature checkpoint commit will be recorded after staging review. No remotes configured; no push or PR possible.
+Branch: `feat/airgrid-real-network-intelligence`. Started at `9c3b457`; latest implementation checkpoint: **`86468c7`**. The subsequent documentation checkpoint is available via `git log -1`. No remotes configured; no push or PR possible.
 
 ## Implemented
 
@@ -26,5 +26,7 @@ Application/test databases both report `0007_network_diagnostics`; no migration 
 Phase 05–08 are not blanket production acceptance: see their handoffs. Priorities are authenticated collector registration/trusted ingestion, temporal and plan-version compatibility, retention controls, telemetry charts, wider history/heatmap/ML evidence reports, persisted planning and measured comparisons. Hardware/provider integrations require the returning operator. Shared multi-worker limits are needed before broader deployment.
 
 Changed areas: API models/migrations/schemas/services/endpoints/tests; survey/ML/diagnostic/Analyst/optimization frontend and navigation; collector CLI; current docs/verification. Private artifacts, credentials, virtual environments and original measurement screenshots are excluded from commits.
+
+Full command evidence: `docs/verification/AUTONOMOUS_BUILD_FINAL.md`.
 
 Next safe action: review schema drift and complete trusted collector/survey ingestion using isolated fixtures. Keep live collection and external AI disabled until explicit operator initiation.

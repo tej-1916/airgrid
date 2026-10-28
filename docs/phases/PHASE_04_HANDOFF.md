@@ -253,4 +253,3 @@ dist/assets/index-CoQmM_ih.js   532.23 kB │ gzip: 135.47 kB
 2. **Preserve Test Isolation:** When adding machine learning model tables or prediction endpoints in Phase 05, ensure test fixtures continue to target `airgrid_test_db` via `conftest.py`.
 3. **Leverage Normalized Coordinates:** `SurveyMeasurement.normalized_x` and `SurveyMeasurement.normalized_y` provide scale-invariant inputs for machine learning training datasets.
 4. **Distinct Propagation Layer:** The Phase 05 ML RF propagation model should augment, not replace, the Phase 04 empirical observation layer. Maintain the clear distinction between measured observations, IDW empirical interpolations, and ML predicted surfaces.
-

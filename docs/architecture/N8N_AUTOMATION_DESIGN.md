@@ -1,3 +1,5 @@
+> Historical specification: the dedicated automation product was retired. This document is retained for history; it is not an active roadmap or deployed feature. See SYSTEM_ARCHITECTURE.md for current behavior.
+
 # AIRGRID | n8n Automation & Webhook Integration Design
 
 ## 1. Overview & Automation Architecture
