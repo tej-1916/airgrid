@@ -139,16 +139,19 @@ async def _reject(db: AsyncSession, collector: NetworkCollector, status_label: s
 
 async def authenticate(db: AsyncSession, request: Request, body: bytes) -> tuple[NetworkCollector, str]:
     """Returns (collector, nonce). Malformed or unknown credentials get the same generic 401."""
+    # Verify first: a valid signature is never blocked by other traffic from the same address.
+    # Only unauthenticated outcomes (401) count against the source IP.
     client_key = f"ip:{request.client.host if request.client else 'unknown'}"
-    limited, retry_after = failure_limiter.is_rate_limited(client_key)
-    if limited:
-        raise HTTPException(status_code=429, detail="Too many failed collector submissions from this address.",
-                            headers={"Retry-After": str(retry_after)})
     try:
         return await _authenticate(db, request, body)
     except HTTPException as exc:
-        if exc.status_code in (401, 403, 409):
-            failure_limiter.record_failure(client_key)
+        if exc.status_code != 401:
+            raise
+        failure_limiter.record_failure(client_key)
+        limited, retry_after = failure_limiter.is_rate_limited(client_key)
+        if limited:
+            raise HTTPException(status_code=429, detail="Too many failed collector submissions from this address.",
+                                headers={"Retry-After": str(retry_after)})
         raise
 
 

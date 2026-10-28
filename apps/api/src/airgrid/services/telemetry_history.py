@@ -13,7 +13,7 @@ from sqlalchemy import and_, delete, desc, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from airgrid.models.all_models import (
-    AuditLog, DataRetentionPolicy, InternetSpeedTest, NetworkTelemetrySnapshot, SurveyMeasurement,
+    AnalysisRecord, AuditLog, DataRetentionPolicy, InternetSpeedTest, NetworkTelemetrySnapshot, SurveyMeasurement,
     TelemetryDailyAggregate, User,
 )
 
@@ -21,6 +21,7 @@ TREND_LIMIT = 2000
 AGGREGATED_METRICS = ("rssi_dbm", "rx_bitrate_mbps", "tx_bitrate_mbps", "gateway_ping_avg_ms", "gateway_ping_loss_pct")
 DATASETS = {
     "collector_telemetry": "Telemetry snapshots not linked to a saved diagnostic report or survey point.",
+    "analysis_records": "Analyst question, comparison and report-analysis history.",
 }
 
 
@@ -186,10 +187,15 @@ async def preview(db: AsyncSession, dataset: str) -> dict:
                 "eligible_count": 0, "protected_count": 0, "oldest_eligible_at": None,
                 "note": "Retention is disabled; all records are kept."}
     cutoff = datetime.now(timezone.utc) - timedelta(days=policy.retention_days)
-    eligible, oldest = (await db.execute(select(func.count(NetworkTelemetrySnapshot.id), func.min(NetworkTelemetrySnapshot.collected_at))
-                                         .where(_eligible_filter(cutoff)))).one()
-    older = (await db.execute(select(func.count(NetworkTelemetrySnapshot.id))
-                              .where(NetworkTelemetrySnapshot.collected_at < cutoff))).scalar_one()
+    if dataset == "analysis_records":
+        eligible, oldest = (await db.execute(select(func.count(AnalysisRecord.id), func.min(AnalysisRecord.created_at))
+                                             .where(AnalysisRecord.created_at < cutoff))).one()
+        older = eligible
+    else:
+        eligible, oldest = (await db.execute(select(func.count(NetworkTelemetrySnapshot.id), func.min(NetworkTelemetrySnapshot.collected_at))
+                                             .where(_eligible_filter(cutoff)))).one()
+        older = (await db.execute(select(func.count(NetworkTelemetrySnapshot.id))
+                                  .where(NetworkTelemetrySnapshot.collected_at < cutoff))).scalar_one()
     return {"dataset": dataset, "enabled": True, "retention_days": policy.retention_days, "cutoff": cutoff.isoformat(),
             "eligible_count": eligible, "protected_count": older - eligible,
             "oldest_eligible_at": _utc(oldest).isoformat() if oldest else None,
@@ -206,6 +212,12 @@ async def apply(db: AsyncSession, dataset: str, confirm: bool, expected_count: i
     if current["eligible_count"] != expected_count:
         raise HTTPException(status_code=409, detail="Eligible record count changed; preview again before applying.")
     cutoff = datetime.fromisoformat(current["cutoff"])
+    if dataset == "analysis_records":
+        deleted = (await db.execute(delete(AnalysisRecord).where(AnalysisRecord.created_at < cutoff))).rowcount
+        db.add(AuditLog(actor_id=user.id, action="retention.applied", resource_type="data_retention_policies",
+                        resource_id=dataset, payload={"deleted": deleted, "cutoff": current["cutoff"]}))
+        await db.commit()
+        return {"dataset": dataset, "deleted": deleted, "aggregated_groups": 0, "cutoff": current["cutoff"]}
     # ponytail: loads all eligible rows at once; batch by id ranges if a single run exceeds ~100k rows.
     rows = list((await db.execute(select(NetworkTelemetrySnapshot).where(_eligible_filter(cutoff)))).scalars())
 

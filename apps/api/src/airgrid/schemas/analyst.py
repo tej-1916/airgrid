@@ -32,4 +32,5 @@ class AnalystResponse(BaseModel):
     limitations: list[str]
     gateway_status: str = 'not_requested'
     provider_reported_model: str | None = None
+    history_id: str | None = None
     confidence: str = 'Observations describe this sample only; causal diagnosis requires independent verification.'

@@ -4,6 +4,10 @@ import { apiRequest } from '../services/api';
 import { diagnosticsService } from '../services/diagnosticsService';
 import { DiagnosticReport } from '../types/diagnostics';
 import { useAuth } from '../context/AuthContext';
+import { AskPanel, ComparePanel, HistoryPanel } from '../components/analyst/AnalystWorkspace';
+
+type Tab = 'report' | 'ask' | 'compare' | 'history';
+const TABS: [Tab, string][] = [['report', 'Saved report'], ['ask', 'Ask the evidence'], ['compare', 'Compare windows'], ['history', 'History']];
 
 interface Analysis {
   report_id: string;
@@ -28,6 +32,7 @@ export const AIAnalystPage: React.FC = () => {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const canAnalyze = user?.role === 'administrator' || user?.role === 'network_engineer';
+  const [tab, setTab] = useState<Tab>(params.get('report') ? 'report' : 'ask');
 
   useEffect(() => {
     let active = true;
@@ -49,6 +54,14 @@ export const AIAnalystPage: React.FC = () => {
 
   return <div className="space-y-6 text-[#0B0B0D]">
     <div className="flex flex-wrap justify-between gap-4"><div><p className="text-xs uppercase tracking-widest text-[#BE6B37]">Evidence workspace</p><h1 className="text-3xl font-bold mt-2">AirGrid Analyst</h1><p className="text-sm text-neutral-600 mt-2">Explain recorded observations and choose the next measurement. Local analysis is the default.</p></div><Link to="/diagnostics" className="text-sm underline">Network Tools</Link></div>
+    <div role="tablist" aria-label="Analyst workspace" className="flex gap-1 overflow-x-auto rounded-xl bg-white border border-[#D9DBDE] p-1 print:hidden">
+      {TABS.map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} onClick={() => setTab(id)}
+        className={`whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-semibold ${tab === id ? 'bg-[#0B0B0D] text-white' : 'text-neutral-600 hover:bg-[#F5F5F3]'}`}>{label}</button>)}
+    </div>
+    {tab === 'ask' && <AskPanel canAsk={canAnalyze} gatewayConfigured={configured} />}
+    {tab === 'compare' && <ComparePanel canAsk={canAnalyze} />}
+    {tab === 'history' && <HistoryPanel isAdmin={user?.role === 'administrator'} />}
+    {tab === 'report' && <>
     <section className="bg-white border border-[#D9DBDE] rounded-2xl p-6 space-y-4 print:hidden" aria-label="Analysis controls">
       <p className="text-sm">AI Gateway: <strong>{configured ? 'Configured; availability not checked' : 'Disabled or unconfigured'}</strong></p>
       <label className="block text-sm font-medium">Source measurement session<select className="block w-full border rounded-lg p-3 mt-2 bg-white" value={reportId} onChange={e => { setReportId(e.target.value); setResult(null); setConsent(false); }}><option value="">Select a saved diagnostic report</option>{reports.map(report => <option key={report.id} value={report.id}>{report.title} — {new Date(report.created_at).toLocaleString()} — {report.data_provenance}</option>)}</select></label>
@@ -65,5 +78,6 @@ export const AIAnalystPage: React.FC = () => {
       {result.findings.map(finding => <section key={finding.source_id} className="bg-white p-6 border rounded-2xl"><p className="text-xs uppercase text-[#BE6B37]">{finding.severity}</p><h3 className="font-semibold mt-2">{finding.title}</h3><p className="text-sm mt-2">{finding.measured_evidence}</p><p className="text-sm mt-3"><strong>Next check:</strong> {finding.recommendation}</p><small className="block break-all mt-2 text-neutral-500">{finding.source_id}</small></section>)}
       <section className="bg-[#F5F5F3] rounded-2xl p-6 border"><h2 className="font-semibold">Limitations</h2><ul className="list-disc pl-5 text-sm space-y-2 mt-3">{result.limitations.map(item => <li key={item}>{item}</li>)}</ul></section>
     </article>}
+    </>}
   </div>;
 };

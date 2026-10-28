@@ -484,11 +484,13 @@ async def test_concurrent_snapshot_claim_loses_with_conflict(client, auth_client
 @pytest.mark.asyncio
 async def test_failed_signatures_do_not_consume_collector_quota(client, registered, monkeypatch):
     monkeypatch.setattr(collector_service, "ingest_limiter", LoginRateLimiter(max_attempts=1, window_seconds=60))
-    monkeypatch.setattr(collector_service, "failure_limiter", LoginRateLimiter(max_attempts=50, window_seconds=60))
+    monkeypatch.setattr(collector_service, "failure_limiter", LoginRateLimiter(max_attempts=2, window_seconds=60))
+    codes = []
     for _ in range(3):
         body, headers = signed(registered.id, "f" * 64, reading())
-        assert (await client.post(INGEST, content=body, headers=headers)).status_code == 401
-    body, headers = signed(registered.id, registered.secret, reading())
+        codes.append((await client.post(INGEST, content=body, headers=headers)).status_code)
+    assert codes == [401, 429, 429]  # the address is throttled for unauthenticated attempts...
+    body, headers = signed(registered.id, registered.secret, reading())  # ...but a valid signature still gets through
     assert (await client.post(INGEST, content=body, headers=headers)).status_code == 201
     async with AsyncSessionLocal() as s:
         collector = await s.get(NetworkCollector, uuid.UUID(registered.id))

@@ -728,3 +728,25 @@ class TelemetryDailyAggregate(Base):
     # {"rssi_dbm": {"count": n, "sum": s, "min": a, "max": b}, ...} so repeated runs merge exactly.
     metrics: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# 27. Analyst history (deterministic or gateway-assisted analyses, questions and comparisons)
+class AnalysisRecord(Base):
+    __tablename__ = "analysis_records"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    question: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    scope: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    evidence_refs: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    freshness: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    gateway_status: Mapped[str] = mapped_column(String(64), default="not_requested", nullable=False)
+    model_identity: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    outcome: Mapped[str] = mapped_column(String(64), nullable=False)
+    error: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    result: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    user: Mapped[Optional["User"]] = relationship("User")
