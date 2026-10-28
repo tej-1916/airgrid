@@ -19,6 +19,15 @@ import { TelemetryLiveCard } from '../components/diagnostics/TelemetryLiveCard';
 import { OperatorConsentModal } from '../components/diagnostics/OperatorConsentModal';
 import { DiagnosticFindingsPanel } from '../components/diagnostics/DiagnosticFindingsPanel';
 import { DiagnosticHistoryDrawer } from '../components/diagnostics/DiagnosticHistoryDrawer';
+import { CollectorsPanel, RetentionPanel, TelemetryTrendsPanel } from '../components/diagnostics/CollectorWorkspace';
+
+type Tab = 'live' | 'collectors' | 'history' | 'retention';
+const TABS: { id: Tab; label: string }[] = [
+  { id: 'live', label: 'Backend host' },
+  { id: 'collectors', label: 'Registered collectors' },
+  { id: 'history', label: 'Trends & history' },
+  { id: 'retention', label: 'Retention' },
+];
 
 export const NetworkDiagnosticsPage: React.FC = () => {
   const { user } = useAuth();
@@ -45,6 +54,9 @@ export const NetworkDiagnosticsPage: React.FC = () => {
   const [isConsentModalOpen, setIsConsentModalOpen] = useState<boolean>(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState<boolean>(false);
 
+  const [tab, setTab] = useState<Tab>('live');
+  const isAdmin = user?.role === 'administrator' || user?.role === 'admin';
+  const showError = useCallback((m: string) => setErrorBanner(m), []);
   const canManage = user?.role === 'administrator' || user?.role === 'admin' || user?.role === 'network_engineer' || user?.role === 'engineer' || user?.role === 'technician';
 
   // Load building and floor defaults
@@ -126,7 +138,9 @@ export const NetworkDiagnosticsPage: React.FC = () => {
         campus_id: selectedCampusId || undefined,
         building_id: selectedBuildingId || undefined,
         floor_id: selectedFloorId || undefined,
-        telemetry: telemetry || undefined,
+        ...(telemetry?.id && !telemetry.report_id
+          ? { telemetry_snapshot_id: telemetry.id }
+          : { telemetry: telemetry || undefined }),
         operator_consent: true,
       });
       setActiveReport(report);
@@ -252,6 +266,25 @@ export const NetworkDiagnosticsPage: React.FC = () => {
         </div>
       )}
 
+      <div role="tablist" aria-label="Diagnostics workspace" className="flex gap-1 overflow-x-auto rounded-xl bg-white border border-[#D9DBDE] p-1">
+        {TABS.map((t) => (
+          <button key={t.id} role="tab" aria-selected={tab === t.id} onClick={() => setTab(t.id)}
+            className={`whitespace-nowrap px-3.5 py-2 rounded-lg text-xs font-semibold transition-all ${tab === t.id ? 'bg-[#0B0B0D] text-white' : 'text-[#525252] hover:bg-[#F5F5F3]'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'collectors' && (
+        <CollectorsPanel canAdmin={isAdmin} canAnalyze={canManage}
+          scope={{ campusId: selectedCampusId || undefined, buildingId: selectedBuildingId || undefined, floorId: selectedFloorId || undefined }}
+          onAnalyzed={(report) => { setActiveReport(report); if (report.telemetry) setTelemetry(report.telemetry); fetchReports(); }}
+          onError={showError} />
+      )}
+      {tab === 'history' && <TelemetryTrendsPanel floorId={selectedFloorId || undefined} onError={showError} />}
+      {tab === 'retention' && <RetentionPanel canAdmin={isAdmin} onError={showError} />}
+
+      {tab === 'live' && (<>
       {/* Action Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-2">
@@ -308,6 +341,7 @@ export const NetworkDiagnosticsPage: React.FC = () => {
         onRunAnalysis={handleRunAnalysis}
         canRun={Boolean(telemetry)}
       />
+      </>)}
 
       {/* Operator Authorization Modal */}
       {activeReport && <Link className="inline-block rounded-lg border border-[#D9DBDE] px-4 py-3 text-sm" to={`/ai-analyst?report=${activeReport.id}`}>Explain saved results with AirGrid Analyst</Link>}

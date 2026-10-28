@@ -111,6 +111,11 @@ class TelemetrySnapshotResponse(BaseModel):
     data_provenance: str = "instrumented_linux_telemetry"
     raw_details: Dict[str, Any] = Field(default_factory=dict)
     collected_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    report_id: Optional[uuid.UUID] = None
+    collector_id: Optional[uuid.UUID] = None
+    collection_status: str = "collected"
+    collection_error: Optional[str] = None
+    connection_state: Optional[str] = None
 
     @field_validator("id", "internet_speed_test_id", mode="before")
     @classmethod
@@ -182,7 +187,9 @@ class AnalyzeDiagnosticsRequest(BaseModel):
     device_name: Optional[str] = "Backend server"
     vantage_point: str = "backend_server"
     operator_consent: bool = False
-    # Can also pass existing telemetry snapshot to analyze directly
+    # Server-owned snapshot handle (from /collect or a registered collector); keeps instrument provenance.
+    telemetry_snapshot_id: Optional[uuid.UUID] = None
+    # Browser-supplied values are accepted but always downgraded to operator_reported.
     telemetry: Optional[TelemetrySnapshotResponse] = None
 
     @field_validator("campus_id", "building_id", "floor_id", "link_internet_speed_test_id", mode="before")

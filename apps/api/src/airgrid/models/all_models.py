@@ -291,6 +291,9 @@ class SurveyMeasurement(Base):
     channel: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     data_provenance: Mapped[str] = mapped_column(String(50), default="operator_reported", nullable=False)
+    # Instrument evidence the operator explicitly placed at this location (one snapshot -> one point).
+    source_telemetry_snapshot_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        GUID, ForeignKey("network_telemetry_snapshots.id", ondelete="SET NULL"), nullable=True, unique=True)
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
@@ -594,6 +597,7 @@ class NetworkTelemetrySnapshot(Base):
         Index("ix_net_tel_snap_report", "report_id"),
         Index("ix_net_tel_snap_user", "user_id"),
         Index("ix_net_tel_snap_collected", "collected_at"),
+        UniqueConstraint("collector_id", "submission_nonce", name="uq_net_tel_snap_collector_nonce"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
@@ -629,9 +633,16 @@ class NetworkTelemetrySnapshot(Base):
     data_provenance: Mapped[str] = mapped_column(String(64), default="instrumented_linux_telemetry", nullable=False)
     raw_details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    # Set only for signed submissions from a registered collector; (collector_id, nonce) rejects replays.
+    collector_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("network_collectors.id", ondelete="SET NULL"), nullable=True, index=True)
+    submission_nonce: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    collection_status: Mapped[str] = mapped_column(String(32), default="collected", server_default="collected", nullable=False)
+    collection_error: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    connection_state: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
     report: Mapped[Optional["NetworkDiagnosticReport"]] = relationship("NetworkDiagnosticReport", back_populates="telemetry")
     internet_speed_test: Mapped[Optional["InternetSpeedTest"]] = relationship("InternetSpeedTest")
+    collector: Mapped[Optional["NetworkCollector"]] = relationship("NetworkCollector")
 
 
 # 23. Network Diagnostic Findings (Phase 06)
@@ -658,3 +669,62 @@ class NetworkDiagnosticFinding(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     report: Mapped["NetworkDiagnosticReport"] = relationship("NetworkDiagnosticReport", back_populates="findings")
+
+
+# 24. Registered Network Collectors (trusted instruments)
+class NetworkCollector(Base, TimestampMixin):
+    """An operator-registered telemetry instrument.
+
+    Its signing secret is derived from AIRGRID_SECRET_KEY + id + secret_salt and is
+    never stored; rotating the salt invalidates the previous secret.
+    """
+    __tablename__ = "network_collectors"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    host_label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    campus_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="SET NULL"), nullable=True)
+    building_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("buildings.id", ondelete="SET NULL"), nullable=True)
+    floor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("floors.id", ondelete="SET NULL"), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False, index=True)
+    secret_salt: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    last_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_submission_status: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    submission_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    rejected_count: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+# 25. Data Retention Policies (no row = keep indefinitely)
+class DataRetentionPolicy(Base):
+    __tablename__ = "data_retention_policies"
+
+    dataset: Mapped[str] = mapped_column(String(64), primary_key=True)
+    retention_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    aggregate_before_delete: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    updated_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+# 26. Telemetry Daily Aggregates (written by retention before raw rows are removed)
+class TelemetryDailyAggregate(Base):
+    __tablename__ = "telemetry_daily_aggregates"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    collector_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("network_collectors.id", ondelete="SET NULL"), nullable=True)
+    floor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("floors.id", ondelete="SET NULL"), nullable=True)
+    vantage_point: Mapped[str] = mapped_column(String(50), nullable=False)
+    data_provenance: Mapped[str] = mapped_column(String(64), nullable=False)
+    day: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    sample_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    # {"rssi_dbm": {"count": n, "sum": s, "min": a, "max": b}, ...} so repeated runs merge exactly.
+    metrics: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

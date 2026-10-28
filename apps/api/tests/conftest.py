@@ -62,3 +62,35 @@ async def dispose_db_engine():
 @pytest.fixture(autouse=True)
 def isolated_model_storage(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "AIRGRID_MODEL_STORAGE_DIR", str(tmp_path / "models"))
+
+
+@pytest.fixture
+async def auth_client():
+    """Factory: auth_client(role) -> AsyncClient logged in as a fresh user with CSRF header preset."""
+    import uuid
+    from airgrid.core.database import AsyncSessionLocal
+    from airgrid.core.security import hash_password
+    from airgrid.models.all_models import User
+
+    clients = []
+
+    async def make(role: str):
+        email = f"{role}-{uuid.uuid4().hex[:8]}@airgrid.test"
+        password = "FixturePassword2026!"
+        async with AsyncSessionLocal() as session:
+            user = User(email=email, hashed_password=hash_password(password), full_name=f"Fixture {role}",
+                        role=role, is_active=True)
+            session.add(user)
+            await session.commit()
+            await session.refresh(user)
+        ac = AsyncClient(transport=ASGITransport(app=app), base_url="http://testserver")
+        clients.append(ac)
+        response = await ac.post("/api/v1/auth/login", json={"email": email, "password": password})
+        assert response.status_code == 200, response.text
+        ac.headers["X-CSRF-Token"] = response.json()["csrf_token"]
+        ac.user = user
+        return ac
+
+    yield make
+    for ac in clients:
+        await ac.aclose()

@@ -21,7 +21,9 @@ from airgrid.schemas.diagnostics import (
     DiagnosticReportListResponse,
 )
 from airgrid.services.telemetry_collector import telemetry_collector
-from airgrid.services.diagnostic_service import diagnostic_service
+from airgrid.services.diagnostic_service import diagnostic_service, snapshot_to_response
+from airgrid.services import telemetry_history
+from airgrid.models.all_models import NetworkTelemetrySnapshot
 
 router = APIRouter(prefix="/diagnostics", tags=["Network Diagnostics"])
 
@@ -60,7 +62,7 @@ async def collect_telemetry(
     Reuses recent Phase 03 internet speed tests when requested.
     Requires explicit operator authorization.
     """
-    return await diagnostic_service.collect_telemetry_snapshot(
+    return await diagnostic_service.collect_and_store_snapshot(
         db=db,
         req=req,
         current_user=current_user,
@@ -182,3 +184,27 @@ async def delete_diagnostic_report(
     """Deletes a diagnostic report (Technician or Admin only)."""
     await diagnostic_service.delete_report(db=db, report_id=report_id, current_user=current_user)
     return {"ok": True, "message": "Diagnostic report deleted successfully"}
+
+
+@router.get("/trends", summary="Persisted telemetry, speed-test and transition history")
+async def get_telemetry_trends(
+    collector_id: Optional[uuid.UUID] = Query(None),
+    floor_id: Optional[uuid.UUID] = Query(None),
+    days: int = Query(7, ge=1, le=90),
+    include_operator_reported: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_authenticated),
+):
+    return await telemetry_history.get_trends(db, collector_id, floor_id, days, include_operator_reported)
+
+
+@router.get("/snapshots/{snapshot_id}", response_model=TelemetrySnapshotResponse)
+async def get_telemetry_snapshot(
+    snapshot_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_authenticated),
+):
+    snapshot = await db.get(NetworkTelemetrySnapshot, snapshot_id)
+    if not snapshot:
+        raise HTTPException(status_code=404, detail="Telemetry snapshot not found.")
+    return snapshot_to_response(snapshot)

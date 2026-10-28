@@ -19,6 +19,7 @@ from airgrid.models.all_models import (
     NetworkDiagnosticReport,
     NetworkTelemetrySnapshot,
     NetworkDiagnosticFinding,
+    NetworkCollector,
 )
 from airgrid.schemas.diagnostics import (
     TelemetryCollectionRequest,
@@ -34,6 +35,100 @@ from airgrid.schemas.diagnostics import (
 )
 from airgrid.services.telemetry_collector import telemetry_collector
 from airgrid.services.diagnostic_engine import diagnostic_engine
+
+
+def snapshot_to_response(t: NetworkTelemetrySnapshot) -> TelemetrySnapshotResponse:
+    """Rebuild the API view of a persisted snapshot without inventing probe values."""
+    stored_ping = (t.raw_details or {}).get("gateway_ping")
+    if stored_ping:
+        gateway_ping = GatewayPingResult(**stored_ping)
+    elif t.gateway_ping_avg_ms is not None:
+        # Legacy rows (pre-0009) stored only aggregates; keep their historical reconstruction.
+        gateway_ping = GatewayPingResult(
+            target_ip=t.gateway_ip or "unknown",
+            transmitted=3,
+            received=3 if t.gateway_ping_loss_pct != 100.0 else 0,
+            loss_pct=t.gateway_ping_loss_pct or 0.0,
+            rtt_avg_ms=t.gateway_ping_avg_ms,
+            rtt_min_ms=t.gateway_ping_min_ms,
+            rtt_max_ms=t.gateway_ping_max_ms,
+        )
+    else:
+        gateway_ping = None
+    return TelemetrySnapshotResponse(
+        id=t.id,
+        interface_name=t.interface_name,
+        mac_address=t.mac_address,
+        ssid=t.ssid,
+        bssid=t.bssid,
+        rssi_dbm=t.rssi_dbm,
+        signal_quality_pct=t.signal_quality_pct,
+        frequency_mhz=t.frequency_mhz,
+        channel=t.channel,
+        channel_width_mhz=t.channel_width_mhz,
+        band=t.band,
+        rx_bitrate_mbps=t.rx_bitrate_mbps,
+        tx_bitrate_mbps=t.tx_bitrate_mbps,
+        security_protocol=t.security_protocol,
+        gateway_ip=t.gateway_ip,
+        gateway_ping=gateway_ping,
+        internet_speed_test_id=t.internet_speed_test_id,
+        internet_download_mbps=t.internet_download_mbps,
+        internet_upload_mbps=t.internet_upload_mbps,
+        internet_latency_ms=t.internet_latency_ms,
+        vantage_point=t.vantage_point,
+        data_provenance=t.data_provenance,
+        raw_details=t.raw_details or {},
+        collected_at=t.collected_at,
+        report_id=t.report_id,
+        collector_id=t.collector_id,
+        collection_status=t.collection_status or "collected",
+        collection_error=t.collection_error,
+        connection_state=t.connection_state,
+    )
+
+
+def snapshot_entity(telemetry: TelemetrySnapshotResponse, report_id, user_id, scope) -> NetworkTelemetrySnapshot:
+    """Map a collected/supplied snapshot onto a new row; the full ping result is kept in raw_details."""
+    ping = telemetry.gateway_ping
+    raw = dict(telemetry.raw_details or {})
+    if ping:
+        raw["gateway_ping"] = ping.model_dump()
+    return NetworkTelemetrySnapshot(
+        id=uuid.uuid4(),
+        report_id=report_id,
+        user_id=user_id,
+        campus_id=scope.campus_id,
+        building_id=scope.building_id,
+        floor_id=scope.floor_id,
+        interface_name=telemetry.interface_name,
+        mac_address=telemetry.mac_address,
+        ssid=telemetry.ssid,
+        bssid=telemetry.bssid,
+        rssi_dbm=telemetry.rssi_dbm,
+        signal_quality_pct=telemetry.signal_quality_pct,
+        frequency_mhz=telemetry.frequency_mhz,
+        channel=telemetry.channel,
+        channel_width_mhz=telemetry.channel_width_mhz,
+        band=telemetry.band,
+        rx_bitrate_mbps=telemetry.rx_bitrate_mbps,
+        tx_bitrate_mbps=telemetry.tx_bitrate_mbps,
+        security_protocol=telemetry.security_protocol,
+        gateway_ip=telemetry.gateway_ip,
+        gateway_ping_avg_ms=ping.rtt_avg_ms if ping else None,
+        gateway_ping_min_ms=ping.rtt_min_ms if ping else None,
+        gateway_ping_max_ms=ping.rtt_max_ms if ping else None,
+        gateway_ping_loss_pct=ping.loss_pct if ping else None,
+        lan_iperf_throughput_mbps=telemetry.iperf.throughput_mbps if telemetry.iperf else None,
+        internet_speed_test_id=telemetry.internet_speed_test_id,
+        internet_download_mbps=telemetry.internet_download_mbps,
+        internet_upload_mbps=telemetry.internet_upload_mbps,
+        internet_latency_ms=telemetry.internet_latency_ms,
+        vantage_point=telemetry.vantage_point,
+        data_provenance=telemetry.data_provenance,
+        raw_details=raw,
+        collected_at=telemetry.collected_at,
+    )
 
 
 class DiagnosticService:
@@ -145,6 +240,43 @@ class DiagnosticService:
 
         return snapshot
 
+    async def collect_and_store_snapshot(
+        self,
+        db: AsyncSession,
+        req: TelemetryCollectionRequest,
+        current_user: User,
+    ) -> TelemetrySnapshotResponse:
+        """Collects on the backend host and stores the result so analysis can reference it by ID."""
+        telemetry = await self.collect_telemetry_snapshot(db, req, current_user)
+        entity = snapshot_entity(telemetry, None, current_user.id, req)
+        db.add(entity)
+        await db.commit()
+        await db.refresh(entity)
+        return snapshot_to_response(entity)
+
+    async def _load_unreported_snapshot(self, db: AsyncSession, req: AnalyzeDiagnosticsRequest) -> NetworkTelemetrySnapshot:
+        snapshot = await db.get(NetworkTelemetrySnapshot, req.telemetry_snapshot_id)
+        if not snapshot:
+            raise HTTPException(status_code=404, detail="Telemetry snapshot not found.")
+        if snapshot.report_id:
+            raise HTTPException(status_code=409, detail=f"Snapshot already analyzed in report {snapshot.report_id}.")
+        if snapshot.collection_status == "failed":
+            raise HTTPException(status_code=422, detail="Failed collections contain no measurements to analyze.")
+        # The snapshot's recorded scope wins; a conflicting requested scope is rejected, not silently replaced.
+        for field in ("campus_id", "building_id", "floor_id"):
+            requested, recorded = getattr(req, field), getattr(snapshot, field)
+            if requested and recorded and requested != recorded:
+                raise HTTPException(status_code=422, detail=f"Requested {field} does not match the snapshot's recorded scope.")
+        if snapshot.collector_id:
+            collector = await db.get(NetworkCollector, snapshot.collector_id)
+            req.device_name = f"Collector: {collector.name}" if collector else "Registered collector"
+            req.device_fingerprint = None
+        if snapshot.floor_id or snapshot.building_id or snapshot.campus_id:
+            req.campus_id, req.building_id, req.floor_id = snapshot.campus_id, snapshot.building_id, snapshot.floor_id
+        else:
+            await self._validate_scope(db, req)
+        return snapshot
+
     async def ping_gateway_probe(self, req: PingGatewayRequest) -> GatewayPingResult:
         if not req.operator_consent:
             raise HTTPException(
@@ -185,10 +317,15 @@ class DiagnosticService:
                 detail="Operator authorization required to run diagnostics.",
             )
 
-        await self._validate_scope(db, req)
+        if not req.telemetry_snapshot_id:
+            await self._validate_scope(db, req)
 
         # 1. Obtain telemetry snapshot
-        if req.telemetry:
+        stored_snapshot: Optional[NetworkTelemetrySnapshot] = None
+        if req.telemetry_snapshot_id:
+            stored_snapshot = await self._load_unreported_snapshot(db, req)
+            telemetry = snapshot_to_response(stored_snapshot)
+        elif req.telemetry:
             telemetry = req.telemetry.model_copy(update={
                 "data_provenance": "operator_reported", "vantage_point": "operator_supplied",
                 "raw_details": {},
@@ -254,43 +391,11 @@ class DiagnosticService:
         db.add(report)
         await db.flush()
 
-        # 5. Save Telemetry Snapshot Entity
-        gw_ping_data = telemetry.gateway_ping
-        telemetry_entity = NetworkTelemetrySnapshot(
-            id=uuid.uuid4(),
-            report_id=report.id,
-            user_id=current_user.id,
-            campus_id=req.campus_id,
-            building_id=req.building_id,
-            floor_id=req.floor_id,
-            interface_name=telemetry.interface_name,
-            mac_address=telemetry.mac_address,
-            ssid=telemetry.ssid,
-            bssid=telemetry.bssid,
-            rssi_dbm=telemetry.rssi_dbm,
-            signal_quality_pct=telemetry.signal_quality_pct,
-            frequency_mhz=telemetry.frequency_mhz,
-            channel=telemetry.channel,
-            channel_width_mhz=telemetry.channel_width_mhz,
-            band=telemetry.band,
-            rx_bitrate_mbps=telemetry.rx_bitrate_mbps,
-            tx_bitrate_mbps=telemetry.tx_bitrate_mbps,
-            security_protocol=telemetry.security_protocol,
-            gateway_ip=telemetry.gateway_ip,
-            gateway_ping_avg_ms=gw_ping_data.rtt_avg_ms if gw_ping_data else None,
-            gateway_ping_min_ms=gw_ping_data.rtt_min_ms if gw_ping_data else None,
-            gateway_ping_max_ms=gw_ping_data.rtt_max_ms if gw_ping_data else None,
-            gateway_ping_loss_pct=gw_ping_data.loss_pct if gw_ping_data else None,
-            lan_iperf_throughput_mbps=telemetry.iperf.throughput_mbps if telemetry.iperf else None,
-            internet_speed_test_id=telemetry.internet_speed_test_id,
-            internet_download_mbps=telemetry.internet_download_mbps,
-            internet_upload_mbps=telemetry.internet_upload_mbps,
-            internet_latency_ms=telemetry.internet_latency_ms,
-            vantage_point=telemetry.vantage_point,
-            data_provenance=telemetry.data_provenance,
-            raw_details=telemetry.raw_details,
-        )
-        db.add(telemetry_entity)
+        # 5. Link the server-owned snapshot, or persist the collected/supplied one
+        if stored_snapshot is not None:
+            stored_snapshot.report_id = report.id
+        else:
+            db.add(snapshot_entity(telemetry, report.id, current_user.id, req))
 
         # 6. Save Finding Entities
         findings_responses: List[DiagnosticFindingResponse] = []
@@ -413,43 +518,7 @@ class DiagnosticService:
         responses = []
         for r in reports:
             # Reconstruct telemetry if available
-            tel_resp: Optional[TelemetrySnapshotResponse] = None
-            if r.telemetry:
-                t = r.telemetry
-                tel_resp = TelemetrySnapshotResponse(
-                    id=t.id,
-                    interface_name=t.interface_name,
-                    mac_address=t.mac_address,
-                    ssid=t.ssid,
-                    bssid=t.bssid,
-                    rssi_dbm=t.rssi_dbm,
-                    signal_quality_pct=t.signal_quality_pct,
-                    frequency_mhz=t.frequency_mhz,
-                    channel=t.channel,
-                    channel_width_mhz=t.channel_width_mhz,
-                    band=t.band,
-                    rx_bitrate_mbps=t.rx_bitrate_mbps,
-                    tx_bitrate_mbps=t.tx_bitrate_mbps,
-                    security_protocol=t.security_protocol,
-                    gateway_ip=t.gateway_ip,
-                    gateway_ping=GatewayPingResult(
-                        target_ip=t.gateway_ip or "unknown",
-                        transmitted=3,
-                        received=3 if t.gateway_ping_loss_pct != 100.0 else 0,
-                        loss_pct=t.gateway_ping_loss_pct or 0.0,
-                        rtt_avg_ms=t.gateway_ping_avg_ms,
-                        rtt_min_ms=t.gateway_ping_min_ms,
-                        rtt_max_ms=t.gateway_ping_max_ms,
-                    ) if t.gateway_ping_avg_ms is not None else None,
-                    internet_speed_test_id=t.internet_speed_test_id,
-                    internet_download_mbps=t.internet_download_mbps,
-                    internet_upload_mbps=t.internet_upload_mbps,
-                    internet_latency_ms=t.internet_latency_ms,
-                    vantage_point=t.vantage_point,
-                    data_provenance=t.data_provenance,
-                    raw_details=t.raw_details or {},
-                    collected_at=t.collected_at,
-                )
+            tel_resp = snapshot_to_response(r.telemetry) if r.telemetry else None
 
             findings_list = [
                 DiagnosticFindingResponse(
@@ -516,43 +585,7 @@ class DiagnosticService:
         if not r:
             return None
 
-        tel_resp: Optional[TelemetrySnapshotResponse] = None
-        if r.telemetry:
-            t = r.telemetry
-            tel_resp = TelemetrySnapshotResponse(
-                id=t.id,
-                interface_name=t.interface_name,
-                mac_address=t.mac_address,
-                ssid=t.ssid,
-                bssid=t.bssid,
-                rssi_dbm=t.rssi_dbm,
-                signal_quality_pct=t.signal_quality_pct,
-                frequency_mhz=t.frequency_mhz,
-                channel=t.channel,
-                channel_width_mhz=t.channel_width_mhz,
-                band=t.band,
-                rx_bitrate_mbps=t.rx_bitrate_mbps,
-                tx_bitrate_mbps=t.tx_bitrate_mbps,
-                security_protocol=t.security_protocol,
-                gateway_ip=t.gateway_ip,
-                gateway_ping=GatewayPingResult(
-                    target_ip=t.gateway_ip or "unknown",
-                    transmitted=3,
-                    received=3 if t.gateway_ping_loss_pct != 100.0 else 0,
-                    loss_pct=t.gateway_ping_loss_pct or 0.0,
-                    rtt_avg_ms=t.gateway_ping_avg_ms,
-                    rtt_min_ms=t.gateway_ping_min_ms,
-                    rtt_max_ms=t.gateway_ping_max_ms,
-                ) if t.gateway_ping_avg_ms is not None else None,
-                internet_speed_test_id=t.internet_speed_test_id,
-                internet_download_mbps=t.internet_download_mbps,
-                internet_upload_mbps=t.internet_upload_mbps,
-                internet_latency_ms=t.internet_latency_ms,
-                vantage_point=t.vantage_point,
-                data_provenance=t.data_provenance,
-                raw_details=t.raw_details or {},
-                collected_at=t.collected_at,
-            )
+        tel_resp = snapshot_to_response(r.telemetry) if r.telemetry else None
 
         findings_list = [
             DiagnosticFindingResponse(
