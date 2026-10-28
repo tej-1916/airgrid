@@ -114,7 +114,8 @@ async def test_login_invalid_credentials_safe_message(client: AsyncClient, test_
     # Nonexistent user (must return identical generic error)
     response2 = await client.post(
         "/api/v1/auth/login",
-        json={"email": "nonexistent@airgrid.test", "password": "AnyPassword123!"},
+        # Unique per run: failures persist in the audit log and feed the DB-backed limiter.
+        json={"email": f"nonexistent-{uuid.uuid4().hex[:8]}@airgrid.test", "password": "AnyPassword123!"},
     )
     assert response2.status_code == 401
     assert response2.json()["detail"] == "Invalid email or password"

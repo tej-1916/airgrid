@@ -21,9 +21,12 @@ from airgrid.models.base import Base, GUID, TimestampMixin
 # 1. Users
 class User(Base, TimestampMixin):
     __tablename__ = "users"
+    __table_args__ = (
+        Index("ix_users_email", "email"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
-    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), default="observer", nullable=False)
@@ -80,10 +83,13 @@ class AuditLog(Base):
 # 3. Campuses
 class Campus(Base, TimestampMixin):
     __tablename__ = "campuses"
+    __table_args__ = (
+        Index("ix_campuses_code", "code"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    code: Mapped[str] = mapped_column(String(50), unique=True, index=True, nullable=False)
+    code: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(50), default="active", nullable=False)
     latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -168,9 +174,12 @@ class FloorPlanAsset(Base, TimestampMixin):
 # 7. Measurement Devices
 class MeasurementDevice(Base, TimestampMixin):
     __tablename__ = "measurement_devices"
+    __table_args__ = (
+        Index("ix_measurement_devices_fingerprint", "device_fingerprint"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
-    device_fingerprint: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    device_fingerprint: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     device_name: Mapped[str] = mapped_column(String(255), nullable=False)
     device_type: Mapped[str] = mapped_column(String(50), nullable=False)
     os_info: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -184,11 +193,14 @@ class MeasurementDevice(Base, TimestampMixin):
 # 8. Access Points
 class AccessPoint(Base, TimestampMixin):
     __tablename__ = "access_points"
+    __table_args__ = (
+        Index("ix_access_points_mac", "mac_address"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
     floor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("floors.id", ondelete="SET NULL"), nullable=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    mac_address: Mapped[str] = mapped_column(String(17), unique=True, index=True, nullable=False)
+    mac_address: Mapped[str] = mapped_column(String(17), unique=True, nullable=False)
     model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     vendor: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     x_coord: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
@@ -235,8 +247,8 @@ class WiFiSignalObservation(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
     survey_session_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("survey_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
-    floor_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), nullable=False, index=True)
-    bssid: Mapped[str] = mapped_column(String(17), nullable=False, index=True)
+    floor_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), nullable=False)
+    bssid: Mapped[str] = mapped_column(String(17), nullable=False)
     ssid: Mapped[str] = mapped_column(String(64), nullable=False)
     rssi_dbm: Mapped[float] = mapped_column(Float, nullable=False)
     frequency_mhz: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -245,11 +257,14 @@ class WiFiSignalObservation(Base):
     snr_db: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     x_coord: Mapped[float] = mapped_column(Float, nullable=False)
     y_coord: Mapped[float] = mapped_column(Float, nullable=False)
-    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     survey_session: Mapped["SurveySession"] = relationship("SurveySession", back_populates="observations")
 
     __table_args__ = (
+        Index("ix_wifi_obs_bssid", "bssid"),
+        Index("ix_wifi_obs_floor_id", "floor_id"),
+        Index("ix_wifi_obs_observed_at", "observed_at"),
         Index("ix_obs_floor_time", "floor_id", "observed_at"),
     )
 
@@ -257,9 +272,12 @@ class WiFiSignalObservation(Base):
 # 10.1 Survey Measurements (Phase 04 Wi-Fi Survey Studio)
 class SurveyMeasurement(Base):
     __tablename__ = "survey_measurements"
+    __table_args__ = (
+        Index("ix_survey_measurements_session_id", "survey_session_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
-    survey_session_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("survey_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    survey_session_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("survey_sessions.id", ondelete="CASCADE"), nullable=False)
     floor_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), nullable=False, index=True)
     position_x: Mapped[float] = mapped_column(Float, nullable=False)
     position_y: Mapped[float] = mapped_column(Float, nullable=False)
@@ -283,10 +301,14 @@ class SurveyMeasurement(Base):
 # 11. Internet Speed Tests
 class InternetSpeedTest(Base):
     __tablename__ = "internet_speed_tests"
+    __table_args__ = (
+        Index("ix_speed_tests_device_id", "device_id"),
+        Index("ix_speed_tests_executed_at", "executed_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
-    device_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("measurement_devices.id", ondelete="SET NULL"), nullable=True, index=True)
+    device_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("measurement_devices.id", ondelete="SET NULL"), nullable=True)
     campus_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="SET NULL"), nullable=True, index=True)
     building_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("buildings.id", ondelete="SET NULL"), nullable=True, index=True)
     floor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("floors.id", ondelete="SET NULL"), nullable=True, index=True)
@@ -311,7 +333,7 @@ class InternetSpeedTest(Base):
     started_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     user: Mapped[Optional["User"]] = relationship("User", back_populates="speed_tests")
     device: Mapped[Optional["MeasurementDevice"]] = relationship("MeasurementDevice", back_populates="speed_tests")
@@ -369,7 +391,7 @@ class MLModel(Base, TimestampMixin):
     model_name: Mapped[str] = mapped_column(String(100), nullable=False)
     model_version: Mapped[str] = mapped_column(String(50), nullable=False)
     algorithm: Mapped[str] = mapped_column(String(100), nullable=False)
-    status: Mapped[str] = mapped_column(String(50), default="trained", nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="trained", nullable=False, index=True)
     hyperparameters: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     training_sample_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     validation_sample_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -425,10 +447,13 @@ class AIProvider(Base, TimestampMixin):
 # 15. AI Execution Records
 class AIExecutionRecord(Base):
     __tablename__ = "ai_execution_records"
+    __table_args__ = (
+        Index("ix_ai_records_request_id", "request_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
     provider_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("ai_providers.id", ondelete="SET NULL"), nullable=True)
-    request_id: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
+    request_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
     prompt_category: Mapped[str] = mapped_column(String(50), nullable=False)
     requested_model: Mapped[str] = mapped_column(String(100), nullable=False)
     verified_model: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
@@ -447,10 +472,13 @@ class AIExecutionRecord(Base):
 # 16. Automation Workflows
 class AutomationWorkflow(Base, TimestampMixin):
     __tablename__ = "automation_workflows"
+    __table_args__ = (
+        Index("ix_auto_workflows_trigger", "event_trigger"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    event_trigger: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
+    event_trigger: Mapped[str] = mapped_column(String(100), nullable=False)
     webhook_url: Mapped[str] = mapped_column(String(512), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
@@ -458,9 +486,12 @@ class AutomationWorkflow(Base, TimestampMixin):
 # 17. System Events
 class SystemEvent(Base):
     __tablename__ = "system_events"
+    __table_args__ = (
+        Index("ix_system_events_type", "event_type"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
-    event_type: Mapped[str] = mapped_column(String(100), index=True, nullable=False)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
     source: Mapped[str] = mapped_column(String(100), nullable=False)
     payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
@@ -503,9 +534,12 @@ class EmailDelivery(Base):
 # 20. AP Optimization Simulations
 class APOptimizationSimulation(Base):
     __tablename__ = "ap_optimization_simulations"
+    __table_args__ = (
+        Index("ix_ap_sim_floor_id", "floor_id"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
-    floor_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), nullable=False, index=True)
+    floor_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), nullable=False)
     model_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("ml_models.id", ondelete="SET NULL"), nullable=True)
     budget_ap_count: Mapped[int] = mapped_column(Integer, nullable=False)
     optimized_coverage_pct: Mapped[float] = mapped_column(Float, nullable=False)
@@ -517,13 +551,18 @@ class APOptimizationSimulation(Base):
 # 21. Network Diagnostic Reports (Phase 06)
 class NetworkDiagnosticReport(Base, TimestampMixin):
     __tablename__ = "network_diagnostic_reports"
+    __table_args__ = (
+        Index("ix_net_diag_rep_floor", "floor_id"),
+        Index("ix_net_diag_rep_user", "user_id"),
+        Index("ix_net_diag_rep_created", "created_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     campus_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="SET NULL"), nullable=True)
     building_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("buildings.id", ondelete="SET NULL"), nullable=True)
-    floor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("floors.id", ondelete="SET NULL"), nullable=True, index=True)
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    floor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("floors.id", ondelete="SET NULL"), nullable=True)
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     device_fingerprint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     device_name: Mapped[str] = mapped_column(String(255), default="Operator Workstation", nullable=False)
     interface_name: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -551,10 +590,15 @@ class NetworkDiagnosticReport(Base, TimestampMixin):
 # 22. Network Telemetry Snapshots (Phase 06)
 class NetworkTelemetrySnapshot(Base):
     __tablename__ = "network_telemetry_snapshots"
+    __table_args__ = (
+        Index("ix_net_tel_snap_report", "report_id"),
+        Index("ix_net_tel_snap_user", "user_id"),
+        Index("ix_net_tel_snap_collected", "collected_at"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
-    report_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("network_diagnostic_reports.id", ondelete="CASCADE"), nullable=True, index=True)
-    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    report_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("network_diagnostic_reports.id", ondelete="CASCADE"), nullable=True)
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     campus_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="SET NULL"), nullable=True)
     building_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("buildings.id", ondelete="SET NULL"), nullable=True)
     floor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("floors.id", ondelete="SET NULL"), nullable=True)
@@ -584,7 +628,7 @@ class NetworkTelemetrySnapshot(Base):
     vantage_point: Mapped[str] = mapped_column(String(50), default="local_collector", nullable=False)
     data_provenance: Mapped[str] = mapped_column(String(64), default="instrumented_linux_telemetry", nullable=False)
     raw_details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
-    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     report: Mapped[Optional["NetworkDiagnosticReport"]] = relationship("NetworkDiagnosticReport", back_populates="telemetry")
     internet_speed_test: Mapped[Optional["InternetSpeedTest"]] = relationship("InternetSpeedTest")
@@ -593,11 +637,16 @@ class NetworkTelemetrySnapshot(Base):
 # 23. Network Diagnostic Findings (Phase 06)
 class NetworkDiagnosticFinding(Base):
     __tablename__ = "network_diagnostic_findings"
+    __table_args__ = (
+        Index("ix_net_diag_find_report", "report_id"),
+        Index("ix_net_diag_find_category", "category"),
+        Index("ix_net_diag_find_severity", "severity"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
-    report_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("network_diagnostic_reports.id", ondelete="CASCADE"), nullable=False, index=True)
-    category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    severity: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    report_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("network_diagnostic_reports.id", ondelete="CASCADE"), nullable=False)
+    category: Mapped[str] = mapped_column(String(64), nullable=False)
+    severity: Mapped[str] = mapped_column(String(32), nullable=False)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     measured_evidence: Mapped[str] = mapped_column(Text, nullable=False)
