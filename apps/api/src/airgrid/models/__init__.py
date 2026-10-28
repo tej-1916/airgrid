@@ -11,9 +11,12 @@ from airgrid.models.all_models import (
     AccessPoint,
     SurveySession,
     WiFiSignalObservation,
+    SurveyMeasurement,
     InternetSpeedTest,
     LANPerformanceTest,
+    MLDatasetSnapshot,
     MLModel,
+    MLEvaluation,
     AIProvider,
     AIExecutionRecord,
     AutomationWorkflow,
@@ -21,6 +24,9 @@ from airgrid.models.all_models import (
     Alert,
     EmailDelivery,
     APOptimizationSimulation,
+    NetworkDiagnosticReport,
+    NetworkTelemetrySnapshot,
+    NetworkDiagnosticFinding,
 )
 
 __all__ = [
@@ -38,9 +44,12 @@ __all__ = [
     "AccessPoint",
     "SurveySession",
     "WiFiSignalObservation",
+    "SurveyMeasurement",
     "InternetSpeedTest",
     "LANPerformanceTest",
+    "MLDatasetSnapshot",
     "MLModel",
+    "MLEvaluation",
     "AIProvider",
     "AIExecutionRecord",
     "AutomationWorkflow",
@@ -48,4 +57,7 @@ __all__ = [
     "Alert",
     "EmailDelivery",
     "APOptimizationSimulation",
+    "NetworkDiagnosticReport",
+    "NetworkTelemetrySnapshot",
+    "NetworkDiagnosticFinding",
 ]

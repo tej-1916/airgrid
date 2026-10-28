@@ -22,4 +22,4 @@ async def test_detailed_health_endpoint(client: AsyncClient):
     assert "dependencies" in data
     assert "database" in data["dependencies"]
     assert "ai_gateway" in data["dependencies"]
-    assert "automation_webhook" in data["dependencies"]
+    assert "automation_webhook" not in data["dependencies"]

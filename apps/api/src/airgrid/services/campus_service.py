@@ -553,7 +553,7 @@ async def save_floor_plan(
         )
     if file_size < 10:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="File is empty or corrupted",
         )
 
@@ -563,7 +563,7 @@ async def save_floor_plan(
         image.verify()  # Verifies integrity without decoding entire image
     except Exception:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Uploaded file is not a valid image or is corrupted",
         )
 
@@ -572,14 +572,14 @@ async def save_floor_plan(
     image_format = (image.format or "").lower()
     if image_format not in settings.AIRGRID_ALLOWED_IMAGE_FORMATS:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Unsupported format '{image_format}'. Allowed formats: {', '.join(settings.AIRGRID_ALLOWED_IMAGE_FORMATS)}",
         )
 
     width, height = image.size
     if width < 10 or height < 10 or width > 20000 or height > 20000:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Image dimensions ({width}x{height}) must be between 10x10 and 20000x20000 pixels",
         )
 
@@ -706,7 +706,7 @@ async def calibrate_floor_plan(
 
     if pixel_distance < 5.0:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Calibration points must be at least 5 pixels apart",
         )
 
@@ -714,7 +714,7 @@ async def calibrate_floor_plan(
     scale_px_per_m = round(pixel_distance / data.distance_m, 4)
     if scale_px_per_m <= 0:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="Calculated scale is invalid",
         )
 

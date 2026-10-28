@@ -53,26 +53,8 @@ services:
     networks:
       - airgrid-net
 
-  n8n:
-    image: docker.n8n.io/n8nio/n8n:latest
-    container_name: airgrid-n8n
-    restart: unless-stopped
-    ports:
-      # Mapped to host port 5680 to avoid collisions with other running containers
-      - "127.0.0.1:${AIRGRID_N8N_PORT:-5680}:5678"
-    environment:
-      - N8N_HOST=127.0.0.1
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=http
-      - WEBHOOK_URL=http://127.0.0.1:${AIRGRID_N8N_PORT:-5680}/
-    volumes:
-      - n8n_data:/home/node/.n8n
-    networks:
-      - airgrid-net
-
 volumes:
   postgres_data:
-  n8n_data:
 
 networks:
   airgrid-net:

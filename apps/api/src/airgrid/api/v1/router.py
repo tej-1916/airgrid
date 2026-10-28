@@ -1,5 +1,17 @@
 from fastapi import APIRouter
-from airgrid.api.v1.endpoints import health, ai, automations, auth, campuses, dashboard, speed_tests
+from airgrid.api.v1.endpoints import (
+    health,
+    ai,
+    auth,
+    campuses,
+    dashboard,
+    speed_tests,
+    surveys,
+    ml,
+    diagnostics,
+    analyst,
+    optimization,
+)
 
 api_router = APIRouter()
 
@@ -8,5 +20,9 @@ api_router.include_router(auth.router, prefix="/auth")
 api_router.include_router(campuses.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(speed_tests.router)
+api_router.include_router(surveys.router)
+api_router.include_router(ml.router)
+api_router.include_router(diagnostics.router)
+api_router.include_router(analyst.router)
+api_router.include_router(optimization.router)
 api_router.include_router(ai.router, prefix="/ai")
-api_router.include_router(automations.router, prefix="/automations")

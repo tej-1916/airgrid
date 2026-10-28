@@ -17,7 +17,7 @@ export const AIModelsPage: React.FC = () => {
       <PhaseNotice
         pageTitle="10. AI Model Control Center"
         phase00Scope="AI provider registry, model routing policies, and fallback telemetry views established."
-        nextPhaseMilestone="Phase 03 will enable hot-swapping active LLM endpoints (Ollama, Groq, OpenAI) from the UI."
+        nextPhaseMilestone="Phase 06 will enable hot-swapping active LLM endpoints (Ollama, Groq, OpenAI) from the UI."
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

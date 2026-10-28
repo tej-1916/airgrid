@@ -13,11 +13,11 @@ import { HeatmapsPage } from './pages/HeatmapsPage';
 import { SpeedTestPage } from './pages/SpeedTestPage';
 import { DevicesPage } from './pages/DevicesPage';
 import { MonitorPage } from './pages/MonitorPage';
-import { AIDiagnosticsPage } from './pages/AIDiagnosticsPage';
+import { NetworkDiagnosticsPage } from './pages/NetworkDiagnosticsPage';
+import { AIAnalystPage } from './pages/AIAnalystPage';
 import { AIModelsPage } from './pages/AIModelsPage';
 import { MLLabPage } from './pages/MLLabPage';
 import { APOptimizationPage } from './pages/APOptimizationPage';
-import { AutomationsPage } from './pages/AutomationsPage';
 import { AlertsPage } from './pages/AlertsPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -60,11 +60,15 @@ export const router = createBrowserRouter([
           { path: 'speed-test', element: <SpeedTestPage /> },
           { path: 'devices', element: <DevicesPage /> },
           { path: 'monitor', element: <MonitorPage /> },
-          { path: 'ai-diagnostics', element: <AIDiagnosticsPage /> },
+          { path: 'ai-analyst', element: <AIAnalystPage /> },
+          { path: 'network-tools', element: <Navigate to="/diagnostics" replace /> },
+          { path: 'diagnostics', element: <NetworkDiagnosticsPage /> },
+          { path: 'network-diagnostics', element: <Navigate to="/diagnostics" replace /> },
+          { path: 'ai-diagnostics', element: <Navigate to="/diagnostics" replace /> },
           { path: 'ai-models', element: <AIModelsPage /> },
           { path: 'ml-lab', element: <MLLabPage /> },
+          { path: 'optimization', element: <APOptimizationPage /> },
           { path: 'ap-optimization', element: <APOptimizationPage /> },
-          { path: 'automations', element: <AutomationsPage /> },
           { path: 'alerts', element: <AlertsPage /> },
           { path: 'reports', element: <ReportsPage /> },
           { path: 'settings', element: <SettingsPage /> },

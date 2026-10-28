@@ -180,8 +180,8 @@ async def test_dashboard_system_status(client: AsyncClient, admin_auth):
     component_names = [c["name"] for c in data["components"]]
     assert "FastAPI ASGI Runtime" in component_names
     assert "PostgreSQL Database" in component_names
-    assert "AI Inference Gateway" in component_names
-    assert "n8n Automation Engine" in component_names
+    assert "AI Gateway" in component_names
+    assert "n8n Automation Engine" not in component_names
 
     # Check postgres component
     pg_comp = next(c for c in data["components"] if c["name"] == "PostgreSQL Database")

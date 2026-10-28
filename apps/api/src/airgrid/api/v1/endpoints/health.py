@@ -22,24 +22,18 @@ async def liveness_probe():
 @router.get("/api/v1/health", response_model=SystemHealthResponse, tags=["System"])
 async def detailed_health():
     """
-    Detailed system health endpoint verifying database, AI gateway, and automation configuration.
+    Detailed system health endpoint verifying database and AI gateway configuration.
     Never fails or throws 500 when external services or AI keys are absent.
     """
     uptime = time.time() - START_TIME
     db_health = await check_database_health()
 
-    ai_status = "active" if ai_gateway.is_configured() else "unconfigured"
+    ai_status = "configured_unchecked" if ai_gateway.is_configured() else "unconfigured"
     ai_health = {
         "status": ai_status,
         "active_provider": settings.AIRGRID_AI_PROVIDER,
         "credentials_present": ai_gateway.is_configured(),
         "configured_model": settings.AIRGRID_AI_DEFAULT_MODEL,
-    }
-
-    webhook_health = {
-        "status": "ready" if settings.AIRGRID_WEBHOOK_SECRET else "unconfigured",
-        "signing_key_configured": bool(settings.AIRGRID_WEBHOOK_SECRET),
-        "webhook_url": settings.AIRGRID_N8N_WEBHOOK_URL,
     }
 
     overall_status = "healthy"
@@ -54,6 +48,5 @@ async def detailed_health():
         dependencies={
             "database": db_health,
             "ai_gateway": ai_health,
-            "automation_webhook": webhook_health,
         },
     )

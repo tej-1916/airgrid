@@ -40,7 +40,7 @@ export const AIDiagnosticsPage: React.FC = () => {
       <PhaseNotice
         pageTitle="09. AI Diagnostics Studio"
         phase00Scope="Interactive AI Gateway invocation console with verified model auditing established."
-        nextPhaseMilestone="Phase 03 will wire active LLM keys, retrieval-augmented grounding from telemetry, and automated remediation prompts."
+        nextPhaseMilestone="Phase 06 will wire active LLM keys, retrieval-augmented grounding from telemetry, and automated remediation prompts."
       />
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

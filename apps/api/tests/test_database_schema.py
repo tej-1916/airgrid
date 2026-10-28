@@ -17,9 +17,12 @@ def test_database_models_registration():
         "access_points",
         "survey_sessions",
         "wifi_signal_observations",
+        "survey_measurements",
         "internet_speed_tests",
         "lan_performance_tests",
+        "ml_dataset_snapshots",
         "ml_models",
+        "ml_evaluations",
         "ai_providers",
         "ai_execution_records",
         "automation_workflows",
@@ -27,6 +30,9 @@ def test_database_models_registration():
         "alerts",
         "email_deliveries",
         "ap_optimization_simulations",
+        "network_diagnostic_reports",
+        "network_telemetry_snapshots",
+        "network_diagnostic_findings",
     }
     actual_tables = set(Base.metadata.tables.keys())
     assert expected_tables.issubset(actual_tables), f"Missing tables: {expected_tables - actual_tables}"

@@ -12,15 +12,16 @@ class PromptCategory(str, Enum):
 class AIGenerateRequest(BaseModel):
     category: PromptCategory = Field(default=PromptCategory.DIAGNOSTIC)
     prompt: str = Field(..., min_length=1, max_length=10000)
-    requested_model: Optional[str] = None
+    requested_model: Optional[str] = Field(default=None, max_length=200)
+    allow_external: bool = False
     temperature: Optional[float] = Field(default=0.2, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(default=512, ge=16, le=4096)
 
 
 class TokenUsage(BaseModel):
-    prompt: int = 0
-    completion: int = 0
-    total: int = 0
+    prompt: int = Field(default=0, ge=0)
+    completion: int = Field(default=0, ge=0)
+    total: int = Field(default=0, ge=0)
 
 
 class AIGenerateResponse(BaseModel):

@@ -36,3 +36,11 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #374151;
 }
+
+/* Keep printable evidence reports complete outside the scrolling application shell. */
+@media print {
+  aside, header { display: none !important; }
+  html, body, #root, #root > div, #root > div > div, main { height: auto !important; width: auto !important; overflow: visible !important; }
+  main { padding: 0 !important; }
+  article section { break-inside: avoid; }
+}

@@ -3,6 +3,9 @@ import sys
 
 # 1. Enforce Test Database Environment Variables BEFORE any airgrid imports
 os.environ["AIRGRID_ENV"] = "testing"
+os.environ["AIRGRID_AI_ENABLED"] = "false"
+os.environ["AIRGRID_AI_API_KEY"] = ""
+os.environ["AIRGRID_COLLECTOR_ENABLED"] = "false"
 os.environ["AIRGRID_DB_NAME"] = "airgrid_test_db"
 os.environ["DATABASE_URL"] = os.getenv(
     "AIRGRID_TEST_DATABASE_URL",
@@ -54,3 +57,8 @@ async def dispose_db_engine():
     yield
     if async_engine:
         await async_engine.dispose()
+
+
+@pytest.fixture(autouse=True)
+def isolated_model_storage(tmp_path, monkeypatch):
+    monkeypatch.setattr(settings, "AIRGRID_MODEL_STORAGE_DIR", str(tmp_path / "models"))

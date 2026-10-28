@@ -1,91 +1,98 @@
-import pytest
-from httpx import AsyncClient, Response
 from unittest.mock import AsyncMock, patch
 
-from airgrid.schemas.ai import AIGenerateRequest, PromptCategory
+import httpx
+import pytest
+
+from airgrid.core.config import settings
+from airgrid.schemas.ai import AIGenerateRequest
 from airgrid.services.ai_gateway import AIGatewayService
 
 
-@pytest.mark.asyncio
-async def test_ai_gateway_unconfigured_contract(client: AsyncClient):
-    """Verifies that an unconfigured AI gateway returns safe degraded status without crashing."""
-    payload = {
-        "category": "diagnostic",
-        "prompt": "Investigate interference on 5GHz channel 36.",
-        "requested_model": "llama-3.3-70b-versatile",
-    }
-    response = await client.post("/api/v1/ai/generate", json=payload)
-    assert response.status_code == 200
-    data = response.json()
-    assert data["status"] == "unconfigured"
-    assert data["requested_model"] == "llama-3.3-70b-versatile"
-    assert data["verified_model"] is None
-    assert data["is_verified_execution"] is False
-    assert data["fallback_detected"] is False
-    assert "Phase 00" in data["output_text"]
-
-
-@pytest.mark.asyncio
-async def test_ai_gateway_model_verification_success():
-    """Verifies model identity when provider responds truthfully."""
+@pytest.fixture
+def gateway(monkeypatch):
+    monkeypatch.setattr(settings, 'AIRGRID_AI_ENABLED', True)
     service = AIGatewayService()
-    service.api_key = "mock-test-key"
-
-    mock_provider_response = {
-        "id": "chatcmpl-123",
-        "model": "llama-3.3-70b-versatile",
-        "choices": [
-            {"message": {"role": "assistant", "content": "Diagnosis: SNR acceptable."}}
-        ],
-        "usage": {"prompt_tokens": 15, "completion_tokens": 8, "total_tokens": 23},
-    }
-
-    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-        mock_post.return_value = Response(200, json=mock_provider_response)
-
-        req = AIGenerateRequest(
-            category=PromptCategory.DIAGNOSTIC,
-            prompt="Analyze RSSI drop",
-            requested_model="llama-3.3-70b-versatile",
-        )
-        res = await service.generate(req)
-
-        assert res.status == "success"
-        assert res.requested_model == "llama-3.3-70b-versatile"
-        assert res.verified_model == "llama-3.3-70b-versatile"
-        assert res.is_verified_execution is True
-        assert res.fallback_detected is False
-        assert "SNR acceptable" in res.output_text
+    service.base_url = 'http://127.0.0.1:9999/v1'
+    service.default_model = 'fixture-model'
+    service.api_key = 'fixture-secret'
+    return service
 
 
 @pytest.mark.asyncio
-async def test_ai_gateway_fallback_detection():
-    """Verifies fallback detection when provider substitutes a different model under the hood."""
-    service = AIGatewayService()
-    service.api_key = "mock-test-key"
+async def test_ai_routes_require_authentication(client):
+    for method, url, body in [('GET', '/api/v1/ai/status', None), ('POST', '/api/v1/ai/generate', {'prompt': 'test'}), ('POST', '/api/v1/analyst/analyze', {'report_id': '00000000-0000-0000-0000-000000000001'})]:
+        response = await client.request(method, url, json=body)
+        assert response.status_code == 401
 
-    # Provider returns llama-3.1-8b-instant even though 70b was requested
-    mock_provider_response = {
-        "id": "chatcmpl-456",
-        "model": "llama-3.1-8b-instant",
-        "choices": [
-            {"message": {"role": "assistant", "content": "Fallback response."}}
-        ],
-        "usage": {"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
-    }
 
-    with patch("httpx.AsyncClient.post", new_callable=AsyncMock) as mock_post:
-        mock_post.return_value = Response(200, json=mock_provider_response)
+@pytest.mark.asyncio
+async def test_unconfigured_and_no_consent_never_send(gateway, monkeypatch):
+    with patch('httpx.AsyncClient.post', new_callable=AsyncMock) as post:
+        response = await gateway.generate(AIGenerateRequest(prompt='private observation'))
+        assert response.status == 'consent_required'
+        monkeypatch.setattr(settings, 'AIRGRID_AI_ENABLED', False)
+        assert (await gateway.generate(AIGenerateRequest(prompt='x', allow_external=True))).status == 'unconfigured'
+        post.assert_not_called()
 
-        req = AIGenerateRequest(
-            category=PromptCategory.DIAGNOSTIC,
-            prompt="Analyze dead zone",
-            requested_model="llama-3.3-70b-versatile",
-        )
-        res = await service.generate(req)
 
-        assert res.status == "success"
-        assert res.requested_model == "llama-3.3-70b-versatile"
-        assert res.verified_model == "llama-3.1-8b-instant"
-        assert res.is_verified_execution is True
-        assert res.fallback_detected is True
+@pytest.mark.asyncio
+@pytest.mark.parametrize('model', ['fixture-model', 'substituted-model', None])
+async def test_provider_identity_is_self_reported(gateway, model):
+    with patch('httpx.AsyncClient.post', new_callable=AsyncMock) as post:
+        post.return_value = httpx.Response(200, json={'model': model, 'choices': [{'message': {'content': 'Fixture output'}}]})
+        response = await gateway.generate(AIGenerateRequest(prompt='fixture', allow_external=True, temperature=0, max_tokens=4096))
+        assert response.status == 'success'
+        assert response.verified_model == model
+        assert not response.is_verified_execution
+        assert response.fallback_detected == bool(model and model != 'fixture-model')
+        payload = post.call_args.kwargs['json']
+        assert payload['max_tokens'] == 1024 and payload['temperature'] == 0
+        assert 'tools' not in payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('status,body', [(401, {'error': 'fixture-secret'}), (404, {}), (503, {}), (200, {}), (200, {'choices': []}), (200, {'choices': [{'message': {'content': 10}}]})])
+async def test_provider_errors_are_redacted(gateway, status, body):
+    with patch('httpx.AsyncClient.post', new_callable=AsyncMock) as post:
+        post.return_value = httpx.Response(status, json=body)
+        result = await gateway.generate(AIGenerateRequest(prompt='x', allow_external=True))
+        assert result.status == 'failed'
+        assert 'fixture-secret' not in result.model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_timeout_and_unapproved_model(gateway):
+    with patch('httpx.AsyncClient.post', new_callable=AsyncMock) as post:
+        post.side_effect = httpx.ReadTimeout('private endpoint fixture-secret')
+        assert (await gateway.generate(AIGenerateRequest(prompt='x', allow_external=True))).status == 'timeout'
+        assert (await gateway.generate(AIGenerateRequest(prompt='x', requested_model='unapproved', allow_external=True))).status == 'failed'
+        assert post.call_count == 1  # zero retries
+
+
+@pytest.mark.asyncio
+async def test_gateway_rate_limit(gateway):
+    with patch('httpx.AsyncClient.post', new_callable=AsyncMock) as post:
+        post.return_value = httpx.Response(503)
+        for _ in range(10):
+            await gateway.generate(AIGenerateRequest(prompt='fixture', allow_external=True))
+        assert (await gateway.generate(AIGenerateRequest(prompt='fixture', allow_external=True))).status == 'rate_limited'
+        assert post.call_count == 10
+
+
+@pytest.mark.asyncio
+async def test_explicit_provider_health(gateway):
+    with patch('httpx.AsyncClient.get', new_callable=AsyncMock) as get:
+        get.return_value = httpx.Response(200, json={'data': [{'id': 'fixture-model'}]})
+        assert (await gateway.health())['status'] == 'available'
+        get.return_value = httpx.Response(401, json={'error': 'fixture-secret'})
+        assert (await gateway.health())['status'] == 'unavailable'
+
+
+@pytest.mark.asyncio
+async def test_provider_cannot_echo_configured_secret(gateway):
+    with patch('httpx.AsyncClient.post', new_callable=AsyncMock) as post:
+        post.return_value = httpx.Response(200, json={'model': 'fixture-model', 'choices': [{'message': {'content': 'echo fixture-secret'}}]})
+        result = await gateway.generate(AIGenerateRequest(prompt='fixture', allow_external=True))
+        assert result.status == 'success'
+        assert 'fixture-secret' not in result.model_dump_json()
+        assert '[REDACTED]' in result.output_text

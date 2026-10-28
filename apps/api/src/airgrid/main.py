@@ -12,7 +12,6 @@ from airgrid.api.v1.endpoints.health import liveness_probe, detailed_health
 async def lifespan(app: FastAPI):
     logger.info("Initializing AirGrid API v%s (Env: %s)", __version__, settings.AIRGRID_ENV)
     logger.info("AI Gateway enabled=%s, provider=%s", settings.AIRGRID_AI_ENABLED, settings.AIRGRID_AI_PROVIDER)
-    logger.info("Automation Webhook configured for: %s", settings.AIRGRID_N8N_WEBHOOK_URL)
     yield
     logger.info("Shutting down AirGrid API cleanly.")
 

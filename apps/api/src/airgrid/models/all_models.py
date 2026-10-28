@@ -139,7 +139,8 @@ class Floor(Base, TimestampMixin):
     building: Mapped["Building"] = relationship("Building", back_populates="floors")
     floor_plan: Mapped[Optional["FloorPlanAsset"]] = relationship("FloorPlanAsset", back_populates="floor", uselist=False, cascade="all, delete-orphan")
     access_points: Mapped[List["AccessPoint"]] = relationship("AccessPoint", back_populates="floor")
-    survey_sessions: Mapped[List["SurveySession"]] = relationship("SurveySession", back_populates="floor")
+    survey_sessions: Mapped[List["SurveySession"]] = relationship("SurveySession", back_populates="floor", cascade="all, delete-orphan")
+    survey_measurements: Mapped[List["SurveyMeasurement"]] = relationship("SurveyMeasurement", back_populates="floor", cascade="all, delete-orphan")
 
 
 # 6. Floor Plan Assets
@@ -205,18 +206,27 @@ class SurveySession(Base, TimestampMixin):
     __tablename__ = "survey_sessions"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    campus_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="CASCADE"), nullable=True, index=True)
+    building_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("buildings.id", ondelete="CASCADE"), nullable=True, index=True)
     floor_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), nullable=False, index=True)
     technician_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     device_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("measurement_devices.id", ondelete="SET NULL"), nullable=True)
     session_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
-    status: Mapped[str] = mapped_column(String(50), default="in_progress", nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="in_progress", nullable=False, index=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
+    campus: Mapped[Optional["Campus"]] = relationship("Campus")
+    building: Mapped[Optional["Building"]] = relationship("Building")
     floor: Mapped["Floor"] = relationship("Floor", back_populates="survey_sessions")
     technician: Mapped[Optional["User"]] = relationship("User", back_populates="survey_sessions")
     device: Mapped[Optional["MeasurementDevice"]] = relationship("MeasurementDevice", back_populates="survey_sessions")
     observations: Mapped[List["WiFiSignalObservation"]] = relationship("WiFiSignalObservation", back_populates="survey_session", cascade="all, delete-orphan")
+    measurements: Mapped[List["SurveyMeasurement"]] = relationship("SurveyMeasurement", back_populates="survey_session", cascade="all, delete-orphan")
 
 
 # 10. Wi-Fi Signal Observations
@@ -242,6 +252,32 @@ class WiFiSignalObservation(Base):
     __table_args__ = (
         Index("ix_obs_floor_time", "floor_id", "observed_at"),
     )
+
+
+# 10.1 Survey Measurements (Phase 04 Wi-Fi Survey Studio)
+class SurveyMeasurement(Base):
+    __tablename__ = "survey_measurements"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    survey_session_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("survey_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    floor_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), nullable=False, index=True)
+    position_x: Mapped[float] = mapped_column(Float, nullable=False)
+    position_y: Mapped[float] = mapped_column(Float, nullable=False)
+    normalized_x: Mapped[float] = mapped_column(Float, nullable=False)
+    normalized_y: Mapped[float] = mapped_column(Float, nullable=False)
+    rssi_dbm: Mapped[float] = mapped_column(Float, nullable=False)
+    measurement_source: Mapped[str] = mapped_column(String(50), default="manual_observation", nullable=False)
+    network_label: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    ap_reference: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    frequency_mhz: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    channel: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    data_provenance: Mapped[str] = mapped_column(String(50), default="operator_reported", nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    survey_session: Mapped["SurveySession"] = relationship("SurveySession", back_populates="measurements")
+    floor: Mapped["Floor"] = relationship("Floor", back_populates="survey_measurements")
 
 
 # 11. Internet Speed Tests
@@ -299,19 +335,79 @@ class LANPerformanceTest(Base):
     executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
 
+# 12.1 ML Dataset Snapshots
+class MLDatasetSnapshot(Base):
+    __tablename__ = "ml_dataset_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    floor_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), nullable=False, index=True)
+    campus_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="SET NULL"), nullable=True)
+    building_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("buildings.id", ondelete="SET NULL"), nullable=True)
+    network_label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    snapshot_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    dataset_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    sample_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    session_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    provenance_summary: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    feature_schema_version: Mapped[str] = mapped_column(String(50), default="v1.0", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    floor: Mapped["Floor"] = relationship("Floor")
+    models: Mapped[List["MLModel"]] = relationship("MLModel", back_populates="dataset_snapshot")
+
+
 # 13. ML Models
 class MLModel(Base, TimestampMixin):
     __tablename__ = "ml_models"
 
     id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    floor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("floors.id", ondelete="CASCADE"), nullable=True, index=True)
+    campus_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="SET NULL"), nullable=True)
+    building_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("buildings.id", ondelete="SET NULL"), nullable=True)
+    dataset_snapshot_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("ml_dataset_snapshots.id", ondelete="SET NULL"), nullable=True)
+    network_label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     model_name: Mapped[str] = mapped_column(String(100), nullable=False)
     model_version: Mapped[str] = mapped_column(String(50), nullable=False)
     algorithm: Mapped[str] = mapped_column(String(100), nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="trained", nullable=False)
+    hyperparameters: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    training_sample_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    validation_sample_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    validation_strategy: Mapped[str] = mapped_column(String(100), default="session_group_kfold", nullable=False)
+    created_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     artifact_path: Mapped[str] = mapped_column(String(512), nullable=False)
     rmse_db: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     mae_db: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     r2_score: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     is_current_champion: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    floor: Mapped[Optional["Floor"]] = relationship("Floor")
+    dataset_snapshot: Mapped[Optional["MLDatasetSnapshot"]] = relationship("MLDatasetSnapshot", back_populates="models")
+    evaluation: Mapped[Optional["MLEvaluation"]] = relationship("MLEvaluation", back_populates="model", uselist=False, cascade="all, delete-orphan")
+    creator: Mapped[Optional["User"]] = relationship("User")
+
+
+# 13.1 ML Evaluations
+class MLEvaluation(Base):
+    __tablename__ = "ml_evaluations"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    model_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("ml_models.id", ondelete="CASCADE"), unique=True, index=True, nullable=False)
+    mae_db: Mapped[float] = mapped_column(Float, nullable=False)
+    rmse_db: Mapped[float] = mapped_column(Float, nullable=False)
+    baseline_mean_mae_db: Mapped[float] = mapped_column(Float, nullable=False)
+    baseline_mean_rmse_db: Mapped[float] = mapped_column(Float, nullable=False)
+    baseline_idw_mae_db: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    baseline_idw_rmse_db: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    evaluation_sample_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    spatial_coverage_pct: Mapped[float] = mapped_column(Float, nullable=False)
+    validation_method: Mapped[str] = mapped_column(String(100), nullable=False)
+    residuals_distribution: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    is_statistically_sound: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    model: Mapped["MLModel"] = relationship("MLModel", back_populates="evaluation")
 
 
 # 14. AI Providers
@@ -416,3 +512,100 @@ class APOptimizationSimulation(Base):
     weak_zone_reduction_pct: Mapped[float] = mapped_column(Float, nullable=False)
     ap_coordinates_json: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
     executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+# 21. Network Diagnostic Reports (Phase 06)
+class NetworkDiagnosticReport(Base, TimestampMixin):
+    __tablename__ = "network_diagnostic_reports"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    campus_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="SET NULL"), nullable=True)
+    building_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("buildings.id", ondelete="SET NULL"), nullable=True)
+    floor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("floors.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    device_fingerprint: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    device_name: Mapped[str] = mapped_column(String(255), default="Operator Workstation", nullable=False)
+    interface_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    vantage_point: Mapped[str] = mapped_column(String(50), default="local_collector", nullable=False)
+    data_provenance: Mapped[str] = mapped_column(String(64), default="instrumented_linux_telemetry", nullable=False)
+    status: Mapped[str] = mapped_column(String(50), default="analyzed", nullable=False)
+    summary_headline: Mapped[str] = mapped_column(Text, nullable=False)
+    overall_score: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    findings_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    critical_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    warning_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    good_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    user: Mapped[Optional["User"]] = relationship("User")
+    campus: Mapped[Optional["Campus"]] = relationship("Campus")
+    building: Mapped[Optional["Building"]] = relationship("Building")
+    floor: Mapped[Optional["Floor"]] = relationship("Floor")
+    telemetry: Mapped[Optional["NetworkTelemetrySnapshot"]] = relationship("NetworkTelemetrySnapshot", back_populates="report", uselist=False, cascade="all, delete-orphan")
+    findings: Mapped[List["NetworkDiagnosticFinding"]] = relationship("NetworkDiagnosticFinding", back_populates="report", cascade="all, delete-orphan")
+
+
+# 22. Network Telemetry Snapshots (Phase 06)
+class NetworkTelemetrySnapshot(Base):
+    __tablename__ = "network_telemetry_snapshots"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    report_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("network_diagnostic_reports.id", ondelete="CASCADE"), nullable=True, index=True)
+    user_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    campus_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="SET NULL"), nullable=True)
+    building_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("buildings.id", ondelete="SET NULL"), nullable=True)
+    floor_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("floors.id", ondelete="SET NULL"), nullable=True)
+    interface_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    mac_address: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    ssid: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    bssid: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    rssi_dbm: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    signal_quality_pct: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    frequency_mhz: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    channel: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    channel_width_mhz: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    band: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    rx_bitrate_mbps: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    tx_bitrate_mbps: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    security_protocol: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    gateway_ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    gateway_ping_avg_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    gateway_ping_min_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    gateway_ping_max_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    gateway_ping_loss_pct: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    lan_iperf_throughput_mbps: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    internet_speed_test_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("internet_speed_tests.id", ondelete="SET NULL"), nullable=True)
+    internet_download_mbps: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    internet_upload_mbps: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    internet_latency_ms: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    vantage_point: Mapped[str] = mapped_column(String(50), default="local_collector", nullable=False)
+    data_provenance: Mapped[str] = mapped_column(String(64), default="instrumented_linux_telemetry", nullable=False)
+    raw_details: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+
+    report: Mapped[Optional["NetworkDiagnosticReport"]] = relationship("NetworkDiagnosticReport", back_populates="telemetry")
+    internet_speed_test: Mapped[Optional["InternetSpeedTest"]] = relationship("InternetSpeedTest")
+
+
+# 23. Network Diagnostic Findings (Phase 06)
+class NetworkDiagnosticFinding(Base):
+    __tablename__ = "network_diagnostic_findings"
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    report_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("network_diagnostic_reports.id", ondelete="CASCADE"), nullable=False, index=True)
+    category: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    severity: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    measured_evidence: Mapped[str] = mapped_column(Text, nullable=False)
+    metric_key: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+    measured_value: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    threshold_value: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
+    unit: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    recommendation: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    report: Mapped["NetworkDiagnosticReport"] = relationship("NetworkDiagnosticReport", back_populates="findings")

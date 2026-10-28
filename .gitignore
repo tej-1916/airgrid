@@ -60,3 +60,8 @@ coverage/
 pgdata/
 model_artifacts/
 uploads/
+
+# Private local model artifacts
+apps/api/data/models/
+*.tsbuildinfo
+data/models/

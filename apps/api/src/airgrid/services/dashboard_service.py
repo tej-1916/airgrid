@@ -194,7 +194,7 @@ async def get_recent_activity(
 
 
 async def get_system_status(db: AsyncSession) -> DashboardSystemStatusResponse:
-    """Checks live statuses of FastAPI, PostgreSQL, AI Gateway, and n8n."""
+    """Database readiness and local configuration; no external provider calls."""
     now = datetime.now(timezone.utc)
     components: List[ComponentStatus] = []
 
@@ -204,7 +204,7 @@ async def get_system_status(db: AsyncSession) -> DashboardSystemStatusResponse:
             name="FastAPI ASGI Runtime",
             status="healthy",
             description=f"Operational (Env: {settings.AIRGRID_ENV})",
-            latency_ms=0.1,
+            latency_ms=None,
             last_checked=now,
         )
     )
@@ -232,48 +232,19 @@ async def get_system_status(db: AsyncSession) -> DashboardSystemStatusResponse:
         )
     )
 
-    # 3. AI Gateway (Contract verification)
-    ai_status = "unconfigured"
-    ai_desc = f"Provider: {settings.AIRGRID_AI_PROVIDER} | Default Model: {settings.AIRGRID_AI_DEFAULT_MODEL}"
-    if settings.AIRGRID_AI_API_KEY:
-        ai_status = "healthy"
-        ai_desc += " (API Key configured)"
-    else:
-        ai_desc += " (No API Key set; simulation mode)"
-
-    components.append(
-        ComponentStatus(
-            name="AI Inference Gateway",
-            status=ai_status,
-            description=ai_desc,
-            latency_ms=None,
-            last_checked=now,
-        )
-    )
-
-    # 4. n8n Automation Engine
-    n8n_status = "unconfigured"
-    n8n_desc = f"Webhook Target: {settings.AIRGRID_N8N_WEBHOOK_URL}"
-    if settings.AIRGRID_N8N_WEBHOOK_URL:
-        n8n_status = "healthy"
-        n8n_desc += f" (HMAC-SHA256 signature enabled)"
-
-    components.append(
-        ComponentStatus(
-            name="n8n Automation Engine",
-            status=n8n_status,
-            description=n8n_desc,
-            latency_ms=None,
-            last_checked=now,
-        )
-    )
+    # Configuration is not evidence of provider availability.
+    from airgrid.services.ai_gateway import ai_gateway
+    components.append(ComponentStatus(
+        name="AI Gateway", status="unconfigured" if not ai_gateway.is_configured() else "degraded",
+        description="Disabled or unconfigured" if not ai_gateway.is_configured() else "Configured; provider availability requires an explicit health check",
+        latency_ms=None, last_checked=now))
 
     # 5. Network RF & Speed Measurement Lab
     components.append(
         ComponentStatus(
             name="Network Measurement Lab",
             status="unconfigured",
-            description="Phase 02 Baseline: Scheduled for Phase 03 activation",
+            description="Browser speed tests and opt-in backend diagnostics are available; no background collection",
             latency_ms=None,
             last_checked=now,
         )

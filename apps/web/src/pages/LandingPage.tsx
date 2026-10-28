@@ -9,7 +9,7 @@ import {
   MapPin,
   Gauge,
   Bot,
-  Workflow,
+  BarChart3,
   Sliders,
   ChevronLeft,
   ChevronRight,
@@ -563,16 +563,16 @@ export const LandingPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Feature 06: n8n Automation & Alerts */}
+            {/* Feature 06: Spatial Signal Analytics */}
             <div className="p-8 rounded-3xl bg-white border border-editorial-border shadow-sm hover:shadow-md transition-all space-y-4">
               <div className="w-12 h-12 rounded-2xl bg-editorial-softgray flex items-center justify-center text-editorial-dark">
-                <Workflow className="w-6 h-6 text-editorial-copper" />
+                <BarChart3 className="w-6 h-6 text-editorial-copper" />
               </div>
               <div className="space-y-2">
-                <div className="text-[11px] font-mono text-editorial-muted">06 / AUTOMATION</div>
-                <h3 className="text-lg font-semibold text-editorial-dark">n8n Signed Workflows</h3>
+                <div className="text-[11px] font-mono text-editorial-muted">06 / TELEMETRY</div>
+                <h3 className="text-lg font-semibold text-editorial-dark">Spatial Signal Analytics</h3>
                 <p className="text-xs text-editorial-muted leading-relaxed">
-                  Event-driven alerting and weekly PDF summary generation via HMAC-SHA256 signed webhooks with timestamp replay defense.
+                  Historical multi-session survey comparisons, RSSI statistical distributions, and architectural coverage delta telemetry.
                 </p>
               </div>
             </div>
@@ -893,10 +893,10 @@ export const LandingPage: React.FC = () => {
             </div>
 
             <div className="p-6 rounded-2xl bg-white border border-editorial-border space-y-2">
-              <div className="text-[10px] font-mono text-editorial-muted uppercase">AUTOMATION</div>
-              <div className="text-sm font-semibold text-editorial-dark">n8n Signed Webhooks</div>
+              <div className="text-[10px] font-mono text-editorial-muted uppercase">PREDICTIVE MODELING</div>
+              <div className="text-sm font-semibold text-editorial-dark">Scikit-Learn ML Regressors</div>
               <p className="text-xs text-editorial-muted leading-relaxed">
-                HMAC-SHA256 authenticated dispatch with timestamp replay defense (±300s) and bounded retries.
+                Leakage-safe GroupKFold spatial cross-validation comparing Random Forest and KNN against IDW baselines.
               </p>
             </div>
           </div>
@@ -1020,11 +1020,6 @@ export const LandingPage: React.FC = () => {
                 Operations
               </div>
               <ul className="space-y-1.5">
-                <li>
-                  <Link to="/automations" className="hover:text-editorial-dark transition-colors">
-                    n8n Automations
-                  </Link>
-                </li>
                 <li>
                   <Link to="/alerts" className="hover:text-editorial-dark transition-colors">
                     Incident Alerts

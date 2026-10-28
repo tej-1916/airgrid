@@ -8,11 +8,9 @@ import {
   Gauge,
   Router as RouterIcon,
   Activity,
-  Bot,
   Cpu,
   BrainCircuit,
   Sliders,
-  Workflow,
   Bell,
   BarChart3,
   Settings,
@@ -50,7 +48,7 @@ const navSections: NavSection[] = [
     items: [
       { name: 'Command Center', path: '/dashboard', icon: LayoutDashboard, isImplemented: true },
       { name: 'Campus Manager', path: '/campuses', icon: Building2, isImplemented: true },
-      { name: 'Wi-Fi Heatmaps', path: '/heatmaps', icon: MapPin, phaseBadge: 'P04' },
+      { name: 'Wi-Fi Heatmaps', path: '/heatmaps', icon: MapPin, isImplemented: true },
       { name: 'Network Speed Test', path: '/speed-test', icon: Gauge, isImplemented: true },
       { name: 'Live Network Monitor', path: '/monitor', icon: Activity, phaseBadge: 'P03' },
     ],
@@ -59,23 +57,23 @@ const navSections: NavSection[] = [
     title: 'Infrastructure',
     items: [
       { name: 'Devices & APs', path: '/devices', icon: RouterIcon, phaseBadge: 'P03' },
-      { name: 'ML Prediction Lab', path: '/ml-lab', icon: BrainCircuit, phaseBadge: 'P05' },
-      { name: 'AP Optimization', path: '/ap-optimization', icon: Sliders, phaseBadge: 'P08' },
+      { name: 'ML Prediction Lab', path: '/ml-lab', icon: BrainCircuit, isImplemented: true },
+      { name: 'Optimization Studio', path: '/optimization', icon: Sliders, isImplemented: true },
     ],
   },
   {
     title: 'Intelligence',
     items: [
-      { name: 'AI Diagnostics', path: '/ai-diagnostics', icon: Bot, phaseBadge: 'P06' },
-      { name: 'AI Model Control', path: '/ai-models', icon: Cpu, phaseBadge: 'P06' },
+      { name: 'Network Diagnostics', path: '/diagnostics', icon: Activity, isImplemented: true },
+      { name: 'AirGrid Analyst', path: '/ai-analyst', icon: BrainCircuit, isImplemented: true },
+      { name: 'AI Model Control', path: '/ai-models', icon: Cpu, phaseBadge: 'P07' },
     ],
   },
   {
     title: 'Operations',
     items: [
-      { name: 'n8n Automations', path: '/automations', icon: Workflow, phaseBadge: 'P07' },
-      { name: 'Alerts & Inbox', path: '/alerts', icon: Bell, phaseBadge: 'P07' },
-      { name: 'Analytics & Reports', path: '/reports', icon: BarChart3, phaseBadge: 'P07' },
+      { name: 'Alerts & Inbox', path: '/alerts', icon: Bell, phaseBadge: 'P06' },
+      { name: 'Analytics & Reports', path: '/reports', icon: BarChart3, phaseBadge: 'P06' },
     ],
   },
   {

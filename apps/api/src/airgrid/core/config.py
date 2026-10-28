@@ -75,12 +75,12 @@ class Settings(BaseSettings):
 
 
     # AI Gateway (Server-Side Only)
-    AIRGRID_AI_ENABLED: bool = True
+    AIRGRID_AI_ENABLED: bool = False
     AIRGRID_AI_PROVIDER: str = "openai_compatible"
-    AIRGRID_AI_API_BASE_URL: str = "https://api.groq.com/openai/v1"
+    AIRGRID_AI_API_BASE_URL: str = ""
     AIRGRID_AI_API_KEY: str = ""
-    AIRGRID_AI_DEFAULT_MODEL: str = "llama-3.3-70b-versatile"
-    AIRGRID_AI_TIMEOUT_SECONDS: int = 30
+    AIRGRID_AI_DEFAULT_MODEL: str = ""
+    AIRGRID_AI_TIMEOUT_SECONDS: int = Field(default=30, ge=1, le=60)
     AIRGRID_AI_TEMPERATURE: float = 0.2
 
     # n8n Automation & Webhook
@@ -92,17 +92,22 @@ class Settings(BaseSettings):
     # Network Measurement Safety Bounds
     AIRGRID_SPEEDTEST_DURATION_SECONDS: int = 10
     AIRGRID_SPEEDTEST_MAX_MB: int = 150
-    AIRGRID_AUTHORIZED_IPERF_TARGETS: Union[str, List[str]] = "127.0.0.1,10.0.0.1"
+    AIRGRID_COLLECTOR_ENABLED: bool = False
+    AIRGRID_AUTHORIZED_IPERF_TARGETS: Union[str, List[str]] = ""
 
     @field_validator("AIRGRID_AUTHORIZED_IPERF_TARGETS", mode="before")
     @classmethod
     def assemble_iperf_targets(cls, v: Union[str, List[str]]) -> List[str]:
         if isinstance(v, str):
             return [t.strip() for t in v.split(",") if t.strip()]
+        return v
     # Floor Plan Storage & Uploads
     AIRGRID_UPLOAD_DIR: str = "data/uploads/floor_plans"
     AIRGRID_MAX_UPLOAD_SIZE_BYTES: int = 15 * 1024 * 1024  # 15 MB
     AIRGRID_ALLOWED_IMAGE_FORMATS: List[str] = ["png", "jpeg", "webp"]
+
+    # ML Model Artifact Storage
+    AIRGRID_MODEL_STORAGE_DIR: str = "data/models"
 
     @field_validator("AIRGRID_ALLOWED_IMAGE_FORMATS", mode="before")
     @classmethod

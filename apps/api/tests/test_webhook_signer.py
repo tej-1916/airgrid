@@ -36,8 +36,11 @@ async def test_automation_dispatch_simulation(client: AsyncClient):
         "data": {"campus": "North Campus", "ap_mac": "AA:BB:CC:DD:EE:01"},
     }
     response = await client.post("/api/v1/automations/dispatch-test", json=payload)
-    assert response.status_code == 200
-    data = response.json()
+    assert response.status_code == 404
+    # Internal signing/simulation infrastructure survives removal of the product endpoint.
+    from airgrid.services.webhook_dispatcher import webhook_dispatcher
+    result = await webhook_dispatcher.dispatch(WebhookEventPayload(**payload), simulate=True)
+    data = result.model_dump()
     assert data["status"] == "simulated"
     assert data["status_code"] == 200
     assert "delivery_id" in data
