@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional, Dict
+from typing import Optional, Dict, List, Any
 from pydantic import BaseModel, Field
 
 
@@ -36,3 +36,25 @@ class AIGenerateResponse(BaseModel):
     output_text: str
     tokens: TokenUsage = Field(default_factory=TokenUsage)
     error_message: Optional[str] = None
+
+
+class SelectModelRequest(BaseModel):
+    model: str = Field(..., min_length=1, max_length=200)
+
+
+class AIStatusResponse(BaseModel):
+    is_configured: bool
+    provider: str
+    endpoint: str
+    default_model: str
+    active_model: str
+    available_models: List[str] = Field(default_factory=list)
+    last_health_check: Optional[Dict[str, Any]] = None
+    last_success: Optional[str] = None
+    last_failure: Optional[str] = None
+    response_latency_ms: Optional[int] = None
+    execution_identity: str
+    privacy_status: str
+    default_mode: str
+    retry_limit: int
+    max_completion_tokens: int

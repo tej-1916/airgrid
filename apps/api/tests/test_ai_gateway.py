@@ -20,7 +20,12 @@ def gateway(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_ai_routes_require_authentication(client):
-    for method, url, body in [('GET', '/api/v1/ai/status', None), ('POST', '/api/v1/ai/generate', {'prompt': 'test'}), ('POST', '/api/v1/analyst/analyze', {'report_id': '00000000-0000-0000-0000-000000000001'})]:
+    for method, url, body in [
+        ('GET', '/api/v1/ai/status', None),
+        ('POST', '/api/v1/ai/generate', {'prompt': 'test'}),
+        ('POST', '/api/v1/ai/select-model', {'model': 'test'}),
+        ('POST', '/api/v1/analyst/analyze', {'report_id': '00000000-0000-0000-0000-000000000001'}),
+    ]:
         response = await client.request(method, url, json=body)
         assert response.status_code == 401
 
@@ -82,10 +87,16 @@ async def test_gateway_rate_limit(gateway):
 @pytest.mark.asyncio
 async def test_explicit_provider_health(gateway):
     with patch('httpx.AsyncClient.get', new_callable=AsyncMock) as get:
-        get.return_value = httpx.Response(200, json={'data': [{'id': 'fixture-model'}]})
-        assert (await gateway.health())['status'] == 'available'
+        get.return_value = httpx.Response(200, json={'data': [{'id': 'fixture-model'}, {'id': 'discovered-model-2'}]})
+        health = await gateway.health()
+        assert health['status'] == 'available'
+        assert 'discovered-model-2' in health['discovered_models']
+        assert health['latency_ms'] is not None
+
         get.return_value = httpx.Response(401, json={'error': 'fixture-secret'})
-        assert (await gateway.health())['status'] == 'unavailable'
+        health_unauth = await gateway.health()
+        assert health_unauth['status'] == 'unavailable'
+        assert health_unauth.get('error') == 'authentication_failed'
 
 
 @pytest.mark.asyncio
@@ -96,3 +107,29 @@ async def test_provider_cannot_echo_configured_secret(gateway):
         assert result.status == 'success'
         assert 'fixture-secret' not in result.model_dump_json()
         assert '[REDACTED]' in result.output_text
+
+
+@pytest.mark.asyncio
+async def test_model_selection_and_status(gateway, auth_client):
+    ac = await auth_client("network_engineer")
+
+    # Gateway status initially reports unconfigured or configured state
+    resp = await ac.get('/api/v1/ai/status')
+    assert resp.status_code == 200
+    status_data = resp.json()
+    assert 'is_configured' in status_data
+    assert 'privacy_status' in status_data
+    assert 'available_models' in status_data
+
+    # Model selection on gateway instance
+    gateway.available_models = ['model-a', 'model-b']
+    assert gateway.select_model('model-a') is True
+    assert gateway.active_model == 'model-a'
+    assert gateway.select_model('unrecognized-model') is False
+
+    # Generation with selected active model
+    with patch('httpx.AsyncClient.post', new_callable=AsyncMock) as post:
+        post.return_value = httpx.Response(200, json={'model': 'model-a', 'choices': [{'message': {'content': 'Generated output'}}]})
+        res = await gateway.generate(AIGenerateRequest(prompt='Hello', requested_model='model-a', allow_external=True))
+        assert res.status == 'success'
+        assert res.requested_model == 'model-a'
