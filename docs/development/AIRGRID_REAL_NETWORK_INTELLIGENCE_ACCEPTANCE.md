@@ -1,9 +1,9 @@
 # AirGrid Real Network Intelligence Acceptance Report
-## Phase 1: Local Collector Configuration, Verification & Readiness
+## Phase 1: Local Collector Configuration, Verification & Authorized Telemetry Storage
 
 **Repository:** `~/Projects/airgrid`  
 **Branch:** `feat/airgrid-real-network-intelligence`  
-**Timestamp:** `2026-10-29T14:18:00+05:30`  
+**Timestamp:** `2026-10-29T14:26:00+05:30`  
 **Host:** `ostra` (Arch Linux / Linux 6.12 kernel, KDE NetworkManager)
 
 ---
@@ -40,7 +40,6 @@ Per safety guidelines, the secure code default (`AIRGRID_COLLECTOR_ENABLED: bool
 
 ## 3. UI Collection Workflow & Scope Safeguards
 
-### 3.1 Operator Consent Modal Enhancement
 In [`apps/web/src/components/diagnostics/OperatorConsentModal.tsx`](file:///home/teju/Projects/airgrid/apps/web/src/components/diagnostics/OperatorConsentModal.tsx):
 - **Measuring Host Identification:** Explicitly displays the target measuring device (`ostra`) and detected Wi-Fi interface (`wlp0s20f3`).
 - **Active SSID Transparency:** Displays the active connected network (`Jain_Student`).
@@ -51,17 +50,29 @@ In [`apps/web/src/components/diagnostics/OperatorConsentModal.tsx`](file:///home
 
 ---
 
-## 4. Current Read-Only Linux Hardware Inspection
+## 4. Authorized Real Measurement Collection & Database Storage
 
-Direct read-only inspection of the active Wi-Fi interface (`wlp0s20f3`) on `ostra`:
-- **Connected SSID:** `Jain_Student`
+Following explicit operator authorization, one genuine read-only measurement was collected from `wlp0s20f3` using **Option A: None (Standalone Audit)**:
+
+### 4.1 Stored Measurement Attributes (`airgrid_db`)
+- **Record ID:** `81c7bcc9-e194-428c-a467-87bcb9487e13`
+- **SSID:** `Jain_Student`
 - **Interface:** `wlp0s20f3`
 - **BSSID:** `80:BC:37:8D:63:EC`
-- **Frequency:** `5540 MHz` (Channel 108, 5 GHz band, 40 MHz channel width)
-- **Signal Strength:** `-51.0 dBm` (Strong)
-- **PHY Link Bitrates:** Negotiated dynamic link rate (~54.0–360.0 Mbps RX / 300.0–360.0 Mbps TX)
-- **IP Address:** `172.20.193.203` (Default Gateway: `172.20.192.1`)
-- **Data Provenance:** `live_system_probe` / `host_local`
+- **Signal Strength:** `-53.0 dBm` (Strong)
+- **Frequency / Band:** `5540 MHz` (Channel 108, 5 GHz band, 40 MHz channel width)
+- **Downlink PHY Bitrate:** `400.0 Mbps` (Negotiated dynamic link rate)
+- **Uplink PHY Bitrate:** `360.0 Mbps` (Negotiated dynamic link rate)
+- **Timestamp (UTC):** `2026-10-29 08:54:33.672035+00:00`
+- **Data Provenance:** `instrumented_linux_telemetry`
+- **Vantage Point:** `backend_server`
+- **Campus ID:** `None` (Standalone Audit — zero cross-campus pollution)
+- **Gateway Probe:** `None` (No ping probe executed)
+- **Speed Test Link:** `None` (No speed test executed)
+
+### 4.2 Historical Records Preservation
+- Confirmed that all 13 historical `MOJO-JAN-C2-F1` records in PostgreSQL `airgrid_db` remain completely intact, undamaged, and preserved.
+- Zero existing reports or snapshots were deleted or overwritten.
 
 ---
 
@@ -70,21 +81,17 @@ Direct read-only inspection of the active Wi-Fi interface (`wlp0s20f3`) on `ostr
 | Milestone | Status | Details |
 | :--- | :--- | :--- |
 | **1. Collector Configuration Fixed** | **PASSED** | `AIRGRID_COLLECTOR_ENABLED=true` in `apps/api/.env`; loaded by running backend; `/interfaces` returns 200 OK |
-| **2. Local Connection Verified** | **PASSED** | `wlp0s20f3` dynamically detected; SSID `Jain_Student`, 5540 MHz, Ch 108, 5 GHz |
+| **2. Local Connection Verified** | **PASSED** | `wlp0s20f3` dynamically detected; SSID `Jain_Student`, 5540 MHz, Ch 108, 5 GHz, -53 dBm |
 | **3. Collection Permission Verified** | **PASSED** | Auth enforced (401 on unauthenticated); consent enforced (400 when `operator_consent=false`) |
-| **4. New Reading Collected with Approval** | **BLOCKED** | *Awaiting explicit operator authorization before persisting operational measurements* |
-| **5. Reading Stored Successfully** | **BLOCKED** | *Awaiting explicit operator authorization to store live measurement to PostgreSQL* |
-| **6. Reading Retrieved Correctly** | **PASSED** | Live connection endpoint retrieves verified hardware status; historical reports retrieve with freshness tags |
-| **7. History Preserved** | **PASSED** | All 4 historical `MOJO-JAN-C2-F1` reports intact in `airgrid_db`; zero records overwritten or deleted |
+| **4. New Reading Collected with Approval** | **PASSED** | Authorized read-only collection executed from interface `wlp0s20f3` with Option A (Standalone Audit) |
+| **5. Reading Stored Successfully** | **PASSED** | Snapshot `81c7bcc9-e194-428c-a467-87bcb9487e13` persisted to `NetworkTelemetrySnapshot` in `airgrid_db` |
+| **6. Reading Retrieved Correctly** | **PASSED** | Querying `/live-connection` and database verifies all physical parameters, bitrates, and timestamps |
+| **7. History Preserved** | **PASSED** | All 13 historical `MOJO-JAN-C2-F1` records intact in `airgrid_db`; zero records overwritten or deleted |
 | **8. Automated Tests Passed** | **PASSED** | Pytest: **205 passed** (0 failures, 0 warnings); Frontend: built clean in 4.09s; Playwright: **16/16 routes passed** |
 
 ---
 
-## 6. Exact Next Safe Action Needed
-
-To collect and store one genuine operational measurement to `airgrid_db` for your currently connected Wi-Fi (`Jain_Student`), please confirm:
-1. **Explicit Approval:** Approve executing one authorized collection from interface `wlp0s20f3`.
-2. **Campus Association Choice:** Confirm whether you wish to associate this measurement as:
-   - **Option A (Recommended):** `None (Standalone Audit)` — does not pollute "Cal Tech Campus" or any other campus with off-campus telemetry.
-   - **Option B:** Associate with an existing campus (e.g., `Validation Campus`).
-   - **Option C:** Register a new campus first (e.g., `Jain University Campus`).
+## 6. Verification Artifacts & Screenshots
+- [`live_diagnostics_jain_collected_desktop.png`](file:///home/teju/Projects/airgrid/docs/verification/screenshots/live_diagnostics_jain_collected_desktop.png): Live browser view of `/diagnostics` with active `Jain_Student` telemetry.
+- [`live_diagnostics_jain_collected_mobile.png`](file:///home/teju/Projects/airgrid/docs/verification/screenshots/live_diagnostics_jain_collected_mobile.png): Mobile 390px viewport view.
+- [`operator_consent_modal_verified.png`](file:///home/teju/Projects/airgrid/docs/verification/screenshots/operator_consent_modal_verified.png): Operator consent modal with interface and campus scope controls.
