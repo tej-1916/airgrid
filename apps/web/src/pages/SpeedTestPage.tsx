@@ -17,18 +17,23 @@ import {
   AlertTriangle,
   CheckCircle2,
   Globe2,
+  Radio,
 } from 'lucide-react';
 
 import { useCampus } from '../context/CampusContext';
 import { campusService } from '../services/campusService';
 import { speedTestService } from '../services/speedTestService';
+import { diagnosticsService } from '../services/diagnosticsService';
 import { cloudflareSpeedTestAdapter } from '../services/cloudflareSpeedTestAdapter';
+import { SpeedTestConsentModal } from '../components/speedtest/SpeedTestConsentModal';
 import {
   SpeedTestState,
   SpeedTestRecord,
   SpeedTestSummaryStats,
+  SpeedTestConfig,
 } from '../types/speedTest';
 import { Campus, Building, Floor } from '../types/campus';
+import { LiveConnectionStatus } from '../types/diagnostics';
 
 export const SpeedTestPage: React.FC = () => {
   const { selectedCampusId } = useCampus();
@@ -73,7 +78,12 @@ export const SpeedTestPage: React.FC = () => {
   // Inspection modal
   const [inspectRecord, setInspectRecord] = useState<SpeedTestRecord | null>(null);
 
-  // 1. Load campuses on mount
+  // Live Wi-Fi connection and config
+  const [liveConnection, setLiveConnection] = useState<LiveConnectionStatus | null>(null);
+  const [config, setConfig] = useState<SpeedTestConfig | null>(null);
+  const [isConsentModalOpen, setIsConsentModalOpen] = useState<boolean>(false);
+
+  // 1. Load campuses, live Wi-Fi link, and speed test config on mount
   useEffect(() => {
     let mounted = true;
     campusService
@@ -83,12 +93,25 @@ export const SpeedTestPage: React.FC = () => {
           setCampuses(res.items);
           if (selectedCampusId) {
             setSelectedCampus(selectedCampusId);
-          } else if (res.items.length > 0) {
-            setSelectedCampus(res.items[0].id);
           }
         }
       })
       .catch((err) => console.error('Failed to load campuses', err));
+
+    diagnosticsService
+      .getLiveConnection()
+      .then((status: LiveConnectionStatus) => {
+        if (mounted) setLiveConnection(status);
+      })
+      .catch((err: unknown) => console.warn('Could not load live Wi-Fi connection info', err));
+
+    speedTestService
+      .getConfig()
+      .then((cfg: SpeedTestConfig) => {
+        if (mounted) setConfig(cfg);
+      })
+      .catch((err: unknown) => console.warn('Could not load speed test safety config', err));
+
     return () => {
       mounted = false;
     };
@@ -186,8 +209,15 @@ export const SpeedTestPage: React.FC = () => {
     };
   }, [cooldownSeconds]);
 
-  // Start Speed Test
-  const handleStartTest = async () => {
+  // Open Speed Test Consent Modal
+  const handleStartTestClick = () => {
+    if (testState.isRunning || cooldownSeconds > 0) return;
+    setIsConsentModalOpen(true);
+  };
+
+  // Execute Speed Test after Operator Authorization
+  const executeSpeedTest = async () => {
+    setIsConsentModalOpen(false);
     if (testState.isRunning || cooldownSeconds > 0) return;
 
     setSaveStatus(null);
@@ -304,7 +334,71 @@ export const SpeedTestPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. Safety & Vantage Point Disclaimer */}
+      {/* 2. Active Wireless Link & Device Context */}
+      <div className="p-4 rounded-xl bg-white border border-[#D9DBDE] shadow-xs space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Radio className="w-4 h-4 text-[#BE6B37]" />
+            <h2 className="text-xs font-bold uppercase tracking-wider text-[#0B0B0D]">
+              Active Wireless Link & Measurement Context
+            </h2>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[#737373]">Persistence Scope:</span>
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[11px] font-semibold border ${
+                associateLocation && selectedCampus
+                  ? 'bg-blue-50 text-blue-700 border-blue-200'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              }`}
+            >
+              {associateLocation && selectedCampus
+                ? `Associated: ${campuses.find((c) => c.id === selectedCampus)?.name || 'Campus'}`
+                : 'Standalone Audit (Unassociated)'}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 p-3 rounded-lg bg-[#F5F5F3] border border-[#D9DBDE] text-xs">
+          <div>
+            <span className="text-[10px] text-[#737373] uppercase font-semibold block">Connected SSID</span>
+            <span className="font-bold text-[#0B0B0D]">{liveConnection?.ssid || 'Not Detected / Standalone'}</span>
+          </div>
+          <div>
+            <span className="text-[10px] text-[#737373] uppercase font-semibold block">Host Interface</span>
+            <span className="font-mono text-[#0B0B0D]">{liveConnection?.interface_name || 'wlp0s20f3'}</span>
+          </div>
+          <div>
+            <span className="text-[10px] text-[#737373] uppercase font-semibold block">Wi-Fi PHY Link Rate</span>
+            <span className="font-semibold text-[#0B0B0D]">
+              {liveConnection?.rx_bitrate_mbps
+                ? `${liveConnection.rx_bitrate_mbps} Mbps RX / ${liveConnection.tx_bitrate_mbps || '—'} Mbps TX`
+                : '—'}
+            </span>
+          </div>
+          <div>
+            <span className="text-[10px] text-[#737373] uppercase font-semibold block">Signal / Band</span>
+            <span className="font-semibold text-[#0B0B0D]">
+              {liveConnection?.rssi_dbm !== null && liveConnection?.rssi_dbm !== undefined
+                ? `${liveConnection.rssi_dbm} dBm`
+                : '—'}{' '}
+              {liveConnection?.frequency_mhz ? `(${liveConnection.frequency_mhz > 3000 ? '5 GHz' : '2.4 GHz'})` : ''}
+            </span>
+          </div>
+        </div>
+
+        <div className="p-2.5 rounded-lg bg-amber-50/60 border border-amber-200 text-[11px] text-amber-900 flex items-start gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+          <div>
+            <strong className="text-amber-950">Architecture Distinction:</strong> The Negotiated Wi-Fi PHY link rate
+            reflects local wireless radio modulation speed between this laptop and the local Wi-Fi AP. It is{' '}
+            <strong>NOT</strong> measured internet throughput. The tests run below measure real end-to-end WAN HTTP/2 throughput
+            to Cloudflare Edge servers.
+          </div>
+        </div>
+      </div>
+
+      {/* 3. Safety & Vantage Point Disclaimer */}
       <div className="p-4 rounded-xl bg-white border border-[#D9DBDE] shadow-xs flex items-start gap-3">
         <div className="p-2 rounded-lg bg-[#BE6B37]/10 text-[#BE6B37] shrink-0 mt-0.5">
           <ShieldCheck className="w-5 h-5" />
@@ -447,7 +541,7 @@ export const SpeedTestPage: React.FC = () => {
           <div className="flex items-center gap-2">
             {!testState.isRunning && !testState.isPaused && (
               <button
-                onClick={handleStartTest}
+                onClick={handleStartTestClick}
                 disabled={cooldownSeconds > 0}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-[#BE6B37] text-white font-semibold text-xs hover:bg-[#9A5226] transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-xs"
               >
@@ -949,6 +1043,27 @@ export const SpeedTestPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* 5. Speed Test Operator Authorization Modal */}
+      <SpeedTestConsentModal
+        isOpen={isConsentModalOpen}
+        onClose={() => setIsConsentModalOpen(false)}
+        onConfirm={executeSpeedTest}
+        connectedSsid={liveConnection?.ssid}
+        interfaceName={liveConnection?.interface_name}
+        rxBitrateMbps={liveConnection?.rx_bitrate_mbps}
+        txBitrateMbps={liveConnection?.tx_bitrate_mbps}
+        signalDbm={liveConnection?.rssi_dbm}
+        frequencyMhz={liveConnection?.frequency_mhz}
+        targetProvider="cloudflare"
+        maxMb={config?.max_mb || 150}
+        durationSeconds={config?.duration_seconds || 10}
+        scopeLabel={
+          associateLocation && selectedCampus
+            ? `Associated: ${campuses.find((c) => c.id === selectedCampus)?.name || 'Campus'}`
+            : 'Standalone Audit (Unassociated)'
+        }
+      />
     </div>
   );
 };

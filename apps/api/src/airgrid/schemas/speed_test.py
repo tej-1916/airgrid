@@ -97,3 +97,11 @@ class SpeedTestStatsResponse(BaseModel):
     max_download_mbps: Optional[float] = None
     max_upload_mbps: Optional[float] = None
     min_latency_ms: Optional[float] = None
+
+
+class SpeedTestConfigResponse(BaseModel):
+    max_mb: int = Field(default=150)
+    duration_seconds: int = Field(default=10)
+    default_provider: str = Field(default="cloudflare")
+    supported_providers: List[str] = Field(default_factory=lambda: ["cloudflare", "librespeed"])
+

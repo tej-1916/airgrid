@@ -4,6 +4,7 @@ import {
   SpeedTestListResponse,
   SpeedTestSummaryStats,
   SpeedTestCreatePayload,
+  SpeedTestConfig,
 } from '../types/speedTest';
 
 export const speedTestService = {
@@ -55,5 +56,12 @@ export const speedTestService = {
   async getStatsSummary(campusId?: string): Promise<SpeedTestSummaryStats> {
     const qs = campusId ? `?campus_id=${encodeURIComponent(campusId)}` : '';
     return apiRequest<SpeedTestSummaryStats>(`/api/v1/speed-tests/stats/summary${qs}`);
+  },
+
+  /**
+   * Get speed test safety limits and server configuration.
+   */
+  async getConfig(): Promise<SpeedTestConfig> {
+    return apiRequest<SpeedTestConfig>('/api/v1/speed-tests/config');
   },
 };

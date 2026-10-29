@@ -340,3 +340,17 @@ async def test_speed_test_unauthenticated_and_csrf_protection(client: AsyncClien
         json={"provider_engine": "cloudflare", "download_mbps": 100.0},
     )
     assert post_resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_speed_test_config_endpoint(client: AsyncClient, operator_auth: dict):
+    """Verify safety limits and supported providers config endpoint."""
+    client.cookies.update(operator_auth["cookies"])
+    resp = await client.get("/api/v1/speed-tests/config")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["max_mb"] == 150
+    assert data["duration_seconds"] == 10
+    assert data["default_provider"] == "cloudflare"
+    assert "cloudflare" in data["supported_providers"]
+

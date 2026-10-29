@@ -88,6 +88,13 @@ export interface SpeedTestSummaryStats {
   min_latency_ms?: number;
 }
 
+export interface SpeedTestConfig {
+  max_mb: number;
+  duration_seconds: number;
+  default_provider: string;
+  supported_providers: string[];
+}
+
 export interface SpeedTestCreatePayload {
   provider_engine: string;
   vantage_point?: string;

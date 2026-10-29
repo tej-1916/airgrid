@@ -3,6 +3,7 @@ import uuid
 from fastapi import APIRouter, Depends, Request, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from airgrid.core.config import settings
 from airgrid.core.database import get_db
 from airgrid.api.deps import require_authenticated, verify_csrf
 from airgrid.models.all_models import User, InternetSpeedTest
@@ -11,6 +12,7 @@ from airgrid.schemas.speed_test import (
     SpeedTestResponse,
     SpeedTestListResponse,
     SpeedTestStatsResponse,
+    SpeedTestConfigResponse,
 )
 from airgrid.services.speed_test_service import speed_test_service
 
@@ -144,6 +146,25 @@ async def get_speed_test_stats(
     """
     stats = await speed_test_service.get_stats_summary(db=db, campus_id=campus_id)
     return SpeedTestStatsResponse(**stats)
+
+
+@router.get(
+    "/speed-tests/config",
+    response_model=SpeedTestConfigResponse,
+    summary="Get speed test safety limits and configuration",
+)
+async def get_speed_test_config(
+    _: User = Depends(require_authenticated),
+):
+    """
+    Retrieve safety limits and supported providers.
+    """
+    return SpeedTestConfigResponse(
+        max_mb=settings.AIRGRID_SPEEDTEST_MAX_MB,
+        duration_seconds=settings.AIRGRID_SPEEDTEST_DURATION_SECONDS,
+        default_provider="cloudflare",
+        supported_providers=["cloudflare", "librespeed"],
+    )
 
 
 @router.get(
