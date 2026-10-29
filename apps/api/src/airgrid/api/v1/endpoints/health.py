@@ -28,7 +28,13 @@ async def detailed_health():
     uptime = time.time() - START_TIME
     db_health = await check_database_health()
 
-    ai_status = "configured_unchecked" if ai_gateway.is_configured() else "unconfigured"
+    ai_status = "unconfigured"
+    if ai_gateway.is_configured():
+        ai_status = (
+            ai_gateway.last_health_check.get("status")
+            if ai_gateway.last_health_check
+            else "configured_unchecked"
+        )
     ai_health = {
         "status": ai_status,
         "active_provider": settings.AIRGRID_AI_PROVIDER,

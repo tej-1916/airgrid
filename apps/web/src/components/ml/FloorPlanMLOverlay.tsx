@@ -233,7 +233,7 @@ export const FloorPlanMLOverlay: React.FC<FloorPlanMLOverlayProps> = ({
                 : 'text-[#737373] hover:text-[#0B0B0D]'
             }`}
           >
-            Phase 04 IDW Baseline
+            IDW Baseline
           </button>
           <button
             onClick={() => setActiveLayer('delta')}

@@ -242,16 +242,7 @@ export const AIModelsPage: React.FC = () => {
               <div className="divide-y divide-[#E5E7EB] border border-[#D9DBDE] rounded-xl overflow-hidden max-h-72 overflow-y-auto">
                 {status.available_models.map((modelId) => {
                   const isActive = status.active_model === modelId;
-                  if (loading) {
-    return (
-      <div className="flex items-center justify-center p-12 text-neutral-500 gap-2">
-        <RefreshCw className="w-5 h-5 animate-spin" />
-        <span>Loading AI Gateway status…</span>
-      </div>
-    );
-  }
-
-  return (
+                  return (
                     <div key={modelId} className="flex items-center justify-between p-3.5 hover:bg-[#F9FAFB] transition-colors">
                       <div className="flex items-center gap-2.5 min-w-0">
                         <Cpu className={`w-4 h-4 flex-shrink-0 ${isActive ? 'text-[#BE6B37]' : 'text-neutral-400'}`} />

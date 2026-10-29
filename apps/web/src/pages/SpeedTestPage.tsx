@@ -275,7 +275,7 @@ export const SpeedTestPage: React.FC = () => {
         <div>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-semibold uppercase tracking-wider text-[#BE6B37]">
-              Phase 03 Active Workspace
+              Throughput & Latency Engine
             </span>
             <span className="text-xs text-[#737373]">•</span>
             <span className="text-xs font-medium text-[#737373]">Real Client Vantage Point</span>

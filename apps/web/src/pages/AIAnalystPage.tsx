@@ -27,6 +27,7 @@ export const AIAnalystPage: React.FC = () => {
   const [reports, setReports] = useState<DiagnosticReport[]>([]);
   const [reportId, setReportId] = useState(params.get('report') || '');
   const [configured, setConfigured] = useState(false);
+  const [gatewayStatus, setGatewayStatus] = useState<{ is_configured: boolean; last_health_check?: { status: string; discovered_count?: number }; response_latency_ms?: number } | null>(null);
   const [consent, setConsent] = useState(false);
   const [result, setResult] = useState<Analysis | null>(null);
   const [error, setError] = useState('');
@@ -36,8 +37,17 @@ export const AIAnalystPage: React.FC = () => {
 
   useEffect(() => {
     let active = true;
-    Promise.all([diagnosticsService.listReports(undefined, undefined, undefined, 0, 100), apiRequest<{ is_configured: boolean }>('/api/v1/ai/status')])
-      .then(([history, gateway]) => { if (active) { setReports(history.reports); setConfigured(gateway.is_configured); } })
+    Promise.all([
+      diagnosticsService.listReports(undefined, undefined, undefined, 0, 100),
+      apiRequest<{ is_configured: boolean; last_health_check?: { status: string; discovered_count?: number }; response_latency_ms?: number }>('/api/v1/ai/status')
+    ])
+      .then(([history, gateway]) => {
+        if (active) {
+          setReports(history.reports);
+          setConfigured(gateway.is_configured);
+          setGatewayStatus(gateway);
+        }
+      })
       .catch(err => { if (active) setError(err.message); });
     return () => { active = false; };
   }, []);
@@ -63,7 +73,16 @@ export const AIAnalystPage: React.FC = () => {
     {tab === 'history' && <HistoryPanel isAdmin={user?.role === 'administrator'} />}
     {tab === 'report' && <>
     <section className="bg-white border border-[#D9DBDE] rounded-2xl p-6 space-y-4 print:hidden" aria-label="Analysis controls">
-      <p className="text-sm">AI Gateway: <strong>{configured ? 'Configured; availability not checked' : 'Disabled or unconfigured'}</strong></p>
+      <p className="text-sm">
+        AI Gateway:{' '}
+        <strong className={gatewayStatus?.last_health_check?.status === 'available' ? 'text-emerald-700' : ''}>
+          {gatewayStatus?.last_health_check?.status === 'available'
+            ? `Configured & Available (${gatewayStatus.last_health_check.discovered_count || 0} models ready, ${gatewayStatus.response_latency_ms || 0} ms)`
+            : configured
+            ? 'Configured (Pending verification)'
+            : 'Disabled or unconfigured'}
+        </strong>
+      </p>
       <label className="block text-sm font-medium">Source measurement session<select className="block w-full border rounded-lg p-3 mt-2 bg-white" value={reportId} onChange={e => { setReportId(e.target.value); setResult(null); setConsent(false); }}><option value="">Select a saved diagnostic report</option>{reports.map(report => <option key={report.id} value={report.id}>{report.title} — {new Date(report.created_at).toLocaleString()} — {report.data_provenance}</option>)}</select></label>
       {!reports.length && <p className="text-sm text-neutral-600">No saved observations. Record an authorized session in Network Tools first.</p>}
       <button disabled={!reportId || loading || !canAnalyze} onClick={() => analyze(false)} className="bg-[#BE6B37] text-white rounded-lg px-5 py-3 disabled:opacity-40">{loading ? 'Analyzing…' : 'Analyze Current Results'}</button>

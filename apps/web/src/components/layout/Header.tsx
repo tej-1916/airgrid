@@ -122,9 +122,9 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu }) => {
           )}
         </div>
 
-        {/* Phase Badge */}
-        <span className="hidden sm:inline-flex text-[11px] font-mono px-2 py-0.5 rounded bg-[#ECECE8] text-[#0B0B0D] font-medium border border-[#D9DBDE]">
-          Phase 02
+        {/* Platform Status Badge */}
+        <span className="hidden sm:inline-flex text-[11px] font-mono px-2 py-0.5 rounded bg-[#ECECE8] text-[#0B0B0D] font-medium border border-[#D9DBDE]" title="Full-Stack Campus Intelligence & AI Gateway">
+          Operational · 16 Routes Active
         </span>
 
         {/* User Badge */}

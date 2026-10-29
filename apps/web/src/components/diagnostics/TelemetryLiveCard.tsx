@@ -221,8 +221,8 @@ export const TelemetryLiveCard: React.FC<TelemetryLiveCardProps> = ({
           </div>
           <div className="text-[10px] text-[#737373]">
             {telemetry.internet_latency_ms
-              ? `WAN RTT: ${telemetry.internet_latency_ms.toFixed(1)} ms (P03)`
-              : 'Phase 03 Speed Test'}
+              ? `WAN RTT: ${telemetry.internet_latency_ms.toFixed(1)} ms`
+              : 'Speed Test WAN Benchmark'}
           </div>
         </div>
       </div>

@@ -195,7 +195,7 @@ export const NetworkDiagnosticsPage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-lg sm:text-xl font-bold text-[#0B0B0D]">Real Wi-Fi Tools & Network Diagnostics</h1>
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#BE6B37]/10 text-[#BE6B37] border border-[#BE6B37]/20 uppercase">
-              Phase 06 Active
+              HMAC Telemetry Ingestion
             </span>
           </div>
           <p className="text-xs text-[#737373] mt-1">

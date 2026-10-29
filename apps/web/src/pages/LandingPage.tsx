@@ -99,9 +99,9 @@ export const LandingPage: React.FC = () => {
             <div className="text-right text-[11px] font-mono text-editorial-muted pr-4 border-r border-editorial-border">
               <div className="text-editorial-dark font-medium flex items-center gap-1.5 justify-end">
                 <span className="w-1.5 h-1.5 rounded-full bg-editorial-copper" />
-                <span>Architecture Foundation</span>
+                <span>Operational Airspace</span>
               </div>
-              <div>Phase 01A • Specification Ready</div>
+              <div>Full-Stack Platform • Production Ready</div>
             </div>
 
             <Link
@@ -1046,7 +1046,7 @@ export const LandingPage: React.FC = () => {
             <div className="flex items-center gap-4 text-[11px] font-mono">
               <span className="flex items-center gap-1.5">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                <span>Phase 01A • Production Build Ready</span>
+                <span>Full-Stack Platform • Production Ready</span>
               </span>
               <span>TLS 1.3</span>
             </div>

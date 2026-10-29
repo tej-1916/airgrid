@@ -1,6 +1,6 @@
 import os
 from typing import List, Optional, Union
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -77,7 +77,15 @@ class Settings(BaseSettings):
     # AI Gateway (Server-Side Only)
     AIRGRID_AI_ENABLED: bool = False
     AIRGRID_AI_PROVIDER: str = "openai_compatible"
-    AIRGRID_AI_API_BASE_URL: str = ""
+    AIRGRID_AI_API_BASE_URL: str = Field(
+        default="",
+        validation_alias=AliasChoices(
+            "AIRGRID_AI_API_BASE_URL",
+            "AIRGRID_AI_GATEWAY_URL",
+            "airgrid_ai_api_base_url",
+            "airgrid_ai_gateway_url",
+        ),
+    )
     AIRGRID_AI_API_KEY: str = ""
     AIRGRID_AI_DEFAULT_MODEL: str = ""
     AIRGRID_AI_TIMEOUT_SECONDS: int = Field(default=30, ge=1, le=60)

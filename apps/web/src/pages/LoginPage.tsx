@@ -192,7 +192,7 @@ export const LoginPage: React.FC = () => {
           {/* Quick Notice */}
           <div className="text-center text-[11px] text-editorial-muted space-y-1">
             <p>AirGrid Campus Network Intelligence Platform</p>
-            <p className="text-[10px] font-mono text-editorial-muted/70">Phase 01B • Secure Authentication & RBAC</p>
+            <p className="text-[10px] font-mono text-editorial-muted/70">Production Access Control • Argon2id &amp; RBAC</p>
           </div>
         </div>
       </main>

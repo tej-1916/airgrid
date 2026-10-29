@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from airgrid import __version__
 from airgrid.core.config import settings
 from airgrid.core.logging import logger
+from airgrid.services.ai_gateway import ai_gateway
 from airgrid.api.v1.router import api_router
 from airgrid.api.v1.endpoints.health import liveness_probe, detailed_health
 
@@ -12,6 +13,13 @@ from airgrid.api.v1.endpoints.health import liveness_probe, detailed_health
 async def lifespan(app: FastAPI):
     logger.info("Initializing AirGrid API v%s (Env: %s)", __version__, settings.AIRGRID_ENV)
     logger.info("AI Gateway enabled=%s, provider=%s", settings.AIRGRID_AI_ENABLED, settings.AIRGRID_AI_PROVIDER)
+    if ai_gateway.is_configured():
+        try:
+            health = await ai_gateway.health()
+            logger.info("AI Gateway initial probe: status=%s, models=%d", 
+                        health.get('status'), len(ai_gateway.available_models))
+        except Exception as e:
+            logger.warning("AI Gateway initial probe failed (non-blocking): %s", e)
     yield
     logger.info("Shutting down AirGrid API cleanly.")
 

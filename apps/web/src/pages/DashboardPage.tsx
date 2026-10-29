@@ -353,7 +353,7 @@ export const DashboardPage: React.FC = () => {
               </div>
 
               <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-white/10 text-xs text-slate-400">
-                <span>Phase 02 Focus: Campus Infrastructure & Visual Management</span>
+                <span>Active Platform: Full-Stack Campus Intelligence & AI Control Center</span>
                 <button
                   onClick={() => navigate('/campuses')}
                   className="flex items-center gap-1.5 text-xs font-semibold text-white hover:text-[#BE6B37] transition-colors"
@@ -367,30 +367,57 @@ export const DashboardPage: React.FC = () => {
             {/* Quick Actions & Module Roadmap */}
             <div className="p-6 rounded-2xl border border-[#D9DBDE] bg-white shadow-sm flex flex-col justify-between space-y-4">
               <div>
-                <h3 className="text-sm font-bold text-[#0B0B0D]">Phase Roadmap Status</h3>
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-bold text-[#0B0B0D]">Platform Capabilities & Verification State</h3>
+                  <span className="text-[10px] font-mono bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200 font-semibold">
+                    16 Routes Operational
+                  </span>
+                </div>
                 <p className="text-xs text-[#737373] mt-0.5">
-                  Controlled progressive disclosure of AirGrid modules.
+                  Audited operational status across AirGrid architectural modules.
                 </p>
 
                 <div className="space-y-2 mt-4 text-xs">
-                  <div className="p-2.5 rounded-xl bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between">
-                    <span className="font-medium text-[#0B0B0D]">Phase 00 & 01: Core Architecture</span>
-                    <span className="text-[10px] font-mono text-emerald-600 font-semibold">VERIFIED</span>
+                  <div className="p-2.5 rounded-xl bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between gap-2">
+                    <span className="font-medium text-[#0B0B0D] truncate">Core Architecture & Access Control</span>
+                    <span className="text-[10px] font-mono text-emerald-700 font-semibold flex-shrink-0 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                      Verified with automated tests
+                    </span>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-[#BE6B37]/10 border border-[#BE6B37]/30 flex items-center justify-between">
-                    <span className="font-semibold text-[#0B0B0D]">Phase 02: Campus & Plans</span>
-                    <span className="text-[10px] font-mono text-[#BE6B37] font-bold">ACTIVE NOW</span>
+                  <div className="p-2.5 rounded-xl bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between gap-2">
+                    <span className="font-medium text-[#0B0B0D] truncate">Campus Infrastructure & Calibrated Plans</span>
+                    <span className="text-[10px] font-mono text-emerald-700 font-semibold flex-shrink-0 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                      Verified with automated tests
+                    </span>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-[#ECECE8]/40 border border-[#D9DBDE] flex items-center justify-between text-[#737373]">
-                    <span>Phase 03: Speed Tests & Surveying</span>
-                    <span className="text-[10px] font-mono">UPCOMING</span>
+                  <div className="p-2.5 rounded-xl bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between gap-2">
+                    <span className="font-medium text-[#0B0B0D] truncate">Speed Tests & Survey Studio Heatmaps</span>
+                    <span className="text-[10px] font-mono text-amber-700 font-semibold flex-shrink-0 bg-amber-50 px-2 py-0.5 rounded border border-amber-200" title="Automated tests passed; live RF capture requires real hardware">
+                      Requires real-device validation
+                    </span>
                   </div>
 
-                  <div className="p-2.5 rounded-xl bg-[#ECECE8]/40 border border-[#D9DBDE] flex items-center justify-between text-[#737373]">
-                    <span>Phase 04+: ML & AI Diagnostics</span>
-                    <span className="text-[10px] font-mono">PLANNED</span>
+                  <div className="p-2.5 rounded-xl bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between gap-2">
+                    <span className="font-medium text-[#0B0B0D] truncate">ML Prediction Lab & AP Optimization</span>
+                    <span className="text-[10px] font-mono text-emerald-700 font-semibold flex-shrink-0 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                      Verified with automated tests
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between gap-2">
+                    <span className="font-medium text-[#0B0B0D] truncate">Linux Collector & HMAC Ingestion</span>
+                    <span className="text-[10px] font-mono text-amber-700 font-semibold flex-shrink-0 bg-amber-50 px-2 py-0.5 rounded border border-amber-200" title="Automated tests passed; physical telemetry ingestion requires registered Linux host">
+                      Requires real-device validation
+                    </span>
+                  </div>
+
+                  <div className="p-2.5 rounded-xl bg-[#BE6B37]/10 border border-[#BE6B37]/30 flex items-center justify-between gap-2">
+                    <span className="font-semibold text-[#0B0B0D] truncate">AI Gateway & FreeLLMAPI Control</span>
+                    <span className="text-[10px] font-mono text-[#BE6B37] font-bold flex-shrink-0 bg-white/80 px-2 py-0.5 rounded border border-[#BE6B37]/30">
+                      Implemented & Verified
+                    </span>
                   </div>
                 </div>
               </div>

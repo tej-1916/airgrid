@@ -66,7 +66,7 @@ export const ModelComparisonModal: React.FC<ModelComparisonModalProps> = ({
                     <tr>
                       <th className="py-2.5 px-3.5">Metric</th>
                       <th className="py-2.5 px-3 font-mono text-[#BE6B37]">ML Model</th>
-                      <th className="py-2.5 px-3 font-mono">Phase 04 IDW</th>
+                      <th className="py-2.5 px-3 font-mono">IDW Baseline</th>
                       <th className="py-2.5 px-3 font-mono">Mean Baseline</th>
                       <th className="py-2.5 px-3 font-mono text-emerald-700">ML vs IDW Delta</th>
                     </tr>

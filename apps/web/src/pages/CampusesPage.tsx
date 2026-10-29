@@ -930,7 +930,7 @@ export const CampusesPage: React.FC = () => {
                   <h4 className="text-sm font-bold text-white">Architectural Airspace Mesh</h4>
                   <p className="text-xs text-slate-400 mt-1 leading-relaxed">
                     This schematic preview illustrates multi-floor wireless signal propagation.
-                    Physical Wi-Fi observations and RF heatmap calculations will be rendered in Phase 04.
+                    Physical Wi-Fi observations and RF heatmap calculations are rendered in the Wi-Fi Heatmap Studio (/heatmaps).
                   </p>
                 </div>
                 <button
