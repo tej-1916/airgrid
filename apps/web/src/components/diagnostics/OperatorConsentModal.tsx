@@ -6,9 +6,12 @@ import {
   Activity,
   AlertTriangle,
   Play,
+  MapPin,
+  Laptop,
 } from 'lucide-react';
 import { diagnosticsService } from '../../services/diagnosticsService';
 import { InterfaceListResponse, CollectTelemetryParams } from '../../types/diagnostics';
+import { Campus } from '../../types/campus';
 
 interface OperatorConsentModalProps {
   isOpen: boolean;
@@ -17,6 +20,7 @@ interface OperatorConsentModalProps {
   campusId?: string;
   buildingId?: string;
   floorId?: string;
+  campuses?: Campus[];
 }
 
 export const OperatorConsentModal: React.FC<OperatorConsentModalProps> = ({
@@ -26,9 +30,13 @@ export const OperatorConsentModal: React.FC<OperatorConsentModalProps> = ({
   campusId,
   buildingId,
   floorId,
+  campuses = [],
 }) => {
   const [interfacesData, setInterfacesData] = useState<InterfaceListResponse | null>(null);
   const [selectedIface, setSelectedIface] = useState<string>('');
+  const [modalCampusId, setModalCampusId] = useState<string>('');
+  const [modalBuildingId, setModalBuildingId] = useState<string>('');
+  const [modalFloorId, setModalFloorId] = useState<string>('');
   const [hasConsent, setHasConsent] = useState<boolean>(false);
   const [includePing, setIncludePing] = useState<boolean>(false);
   const [pingCount, setPingCount] = useState<number>(3);
@@ -41,6 +49,19 @@ export const OperatorConsentModal: React.FC<OperatorConsentModalProps> = ({
       setHasConsent(false);
       setIncludePing(false);
       setErrorMsg(null);
+      // Initialize modal facility scope from parent props, or leave unassigned if Cal Tech to prevent auto-misassociation
+      const initialCampus = campuses.find((c) => c.id === campusId);
+      if (initialCampus && initialCampus.name.toLowerCase().includes('cal tech')) {
+        // Do not auto-associate Cal Tech Campus if connected network differs
+        setModalCampusId('');
+        setModalBuildingId('');
+        setModalFloorId('');
+      } else {
+        setModalCampusId(campusId || '');
+        setModalBuildingId(buildingId || '');
+        setModalFloorId(floorId || '');
+      }
+
       diagnosticsService
         .getInterfaces()
         .then((res) => {
@@ -55,9 +76,16 @@ export const OperatorConsentModal: React.FC<OperatorConsentModalProps> = ({
           setErrorMsg(err.message || 'Failed to detect local interfaces.');
         });
     }
-  }, [isOpen]);
+  }, [isOpen, campusId, buildingId, floorId, campuses]);
 
   if (!isOpen) return null;
+
+  const selectedCampusObj = campuses.find((c) => c.id === modalCampusId);
+
+  // Active connected Wi-Fi connection name
+  const activeInterfaceObj = interfacesData?.interfaces.find((i) => i.name === selectedIface);
+  const activeConnectedSsid = activeInterfaceObj?.connection_name || (activeInterfaceObj?.is_wireless ? 'Wi-Fi' : null);
+  const isCalTechSelected = Boolean(selectedCampusObj?.name.toLowerCase().includes('cal tech'));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,9 +99,9 @@ export const OperatorConsentModal: React.FC<OperatorConsentModalProps> = ({
       setErrorMsg(null);
       await onStartCollection({
         interface_name: selectedIface || undefined,
-        campus_id: campusId || undefined,
-        building_id: buildingId || undefined,
-        floor_id: floorId || undefined,
+        campus_id: modalCampusId || undefined,
+        building_id: modalBuildingId || undefined,
+        floor_id: modalFloorId || undefined,
         include_gateway_ping: includePing,
         ping_count: pingCount,
         iperf_target_host: iperfTarget.trim() || undefined,
@@ -98,7 +126,7 @@ export const OperatorConsentModal: React.FC<OperatorConsentModalProps> = ({
             </div>
             <div>
               <h3 className="text-base font-bold text-[#0B0B0D]">Collect Live Network Telemetry</h3>
-              <p className="text-xs text-[#737373]">Collects from the backend server, which may differ from this browser device.</p>
+              <p className="text-xs text-[#737373]">Authorized read-only Linux wireless hardware inspection</p>
             </div>
           </div>
           <button
@@ -110,7 +138,7 @@ export const OperatorConsentModal: React.FC<OperatorConsentModalProps> = ({
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
           {errorMsg && (
             <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-start gap-2.5">
               <AlertTriangle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
@@ -118,10 +146,13 @@ export const OperatorConsentModal: React.FC<OperatorConsentModalProps> = ({
             </div>
           )}
 
-          {/* Interface Selector */}
+          {/* Measuring Host & Interface */}
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-[#0B0B0D] flex items-center justify-between">
-              <span>Target Network Interface</span>
+              <span className="flex items-center gap-1.5">
+                <Laptop className="w-3.5 h-3.5 text-[#BE6B37]" />
+                <span>Measuring Host & Interface</span>
+              </span>
               {interfacesData?.discovered_wireless_interface && (
                 <span className="text-[10px] text-emerald-700 font-normal">
                   Auto-detected Wi-Fi: <strong>{interfacesData.discovered_wireless_interface}</strong>
@@ -136,16 +167,93 @@ export const OperatorConsentModal: React.FC<OperatorConsentModalProps> = ({
               >
                 {interfacesData?.interfaces.map((iface) => (
                   <option key={iface.name} value={iface.name}>
-                    {iface.name} ({iface.type}) {iface.is_connected ? '• Connected' : '• Down'}
+                    {iface.name} ({iface.type}) {iface.is_connected ? `• Connected (${iface.connection_name || 'Active'})` : '• Down'}
                     {iface.is_wireless ? ' [Wireless]' : ''}
                   </option>
                 ))}
               </select>
             </div>
+            <div className="text-[10px] text-[#737373] flex items-center justify-between pt-0.5">
+              <span>Host Machine: <strong className="font-mono text-[#0B0B0D]">{interfacesData?.hostname || 'ostra'}</strong></span>
+              {activeConnectedSsid && (
+                <span>Active SSID: <strong className="font-semibold text-emerald-700">{activeConnectedSsid}</strong></span>
+              )}
+            </div>
           </div>
 
-          {/* Probing Options */}
-          <div className="p-4 rounded-xl bg-[#F5F5F3] border border-[#D9DBDE] space-y-3">
+          {/* Target Facility & Campus Association */}
+          <div className="space-y-2 p-3.5 rounded-xl bg-[#F5F5F3] border border-[#D9DBDE]">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-[#0B0B0D] flex items-center gap-1.5">
+                <MapPin className="w-3.5 h-3.5 text-[#BE6B37]" />
+                <span>Target Facility Association</span>
+              </label>
+              <span className="text-[10px] text-[#737373]">
+                {modalCampusId ? selectedCampusObj?.name : 'Standalone Audit'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+              {/* Campus Selector */}
+              <div>
+                <label className="text-[10px] font-semibold text-[#737373] block mb-1">
+                  Institutional Campus
+                </label>
+                <select
+                  value={modalCampusId}
+                  onChange={(e) => {
+                    setModalCampusId(e.target.value);
+                    setModalBuildingId('');
+                    setModalFloorId('');
+                  }}
+                  className="w-full text-xs bg-white border border-[#D9DBDE] rounded-lg px-2.5 py-1.5 text-[#0B0B0D] focus:outline-none focus:ring-1 focus:ring-[#BE6B37]"
+                >
+                  <option value="">None (Standalone Audit)</option>
+                  {campuses.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Building Selector (if campus selected) */}
+              <div>
+                <label className="text-[10px] font-semibold text-[#737373] block mb-1">
+                  Building & Floor (Optional)
+                </label>
+                <select
+                  value={modalBuildingId}
+                  onChange={(e) => {
+                    setModalBuildingId(e.target.value);
+                    setModalFloorId('');
+                  }}
+                  disabled={!selectedCampusObj?.buildings?.length}
+                  className="w-full text-xs bg-white border border-[#D9DBDE] rounded-lg px-2.5 py-1.5 text-[#0B0B0D] disabled:opacity-50 focus:outline-none focus:ring-1 focus:ring-[#BE6B37]"
+                >
+                  <option value="">Unassigned Building</option>
+                  {selectedCampusObj?.buildings?.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Warning if Cal Tech Campus is selected while connected to a different Wi-Fi */}
+            {isCalTechSelected && activeConnectedSsid && activeConnectedSsid !== 'Cal Tech Campus' && (
+              <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-300 text-[11px] text-amber-900 flex items-start gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-700 flex-shrink-0 mt-0.5" />
+                <span>
+                  <strong>Facility Notice:</strong> You are connected to <strong>{activeConnectedSsid}</strong>, but have selected <strong>Cal Tech Campus</strong>. To prevent misassociating institutional records, confirm this is intended or select <em>None (Standalone Audit)</em>.
+                </span>
+              </div>
+            )}
+          </div>
+
+          {/* Probing Options (Safe Bounded Safeguards) */}
+          <div className="p-3.5 rounded-xl bg-[#F5F5F3] border border-[#D9DBDE] space-y-3">
             <div className="text-xs font-semibold text-[#0B0B0D] flex items-center gap-1.5">
               <Activity className="w-3.5 h-3.5 text-[#BE6B37]" />
               <span>Bounded Probing Safeguards</span>

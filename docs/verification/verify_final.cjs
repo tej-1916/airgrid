@@ -176,7 +176,7 @@ async function main() {
   });
 
   const page = await context.newPage();
-  page.setDefaultTimeout(8000);
+  page.setDefaultTimeout(15000);
   const errors = [];
   page.on('pageerror', err => errors.push(err.message));
 

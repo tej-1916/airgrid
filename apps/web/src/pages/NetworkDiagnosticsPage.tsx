@@ -376,6 +376,7 @@ export const NetworkDiagnosticsPage: React.FC = () => {
         campusId={selectedCampusId || undefined}
         buildingId={selectedBuildingId || undefined}
         floorId={selectedFloorId || undefined}
+        campuses={campuses}
       />
 
       {/* Historical Reports Drawer */}
