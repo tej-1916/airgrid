@@ -12,6 +12,7 @@ from airgrid.schemas.diagnostics import (
     InterfaceListResponse,
     TelemetryCollectionRequest,
     TelemetrySnapshotResponse,
+    LiveConnectionResponse,
     PingGatewayRequest,
     GatewayPingResult,
     IperfTestRequest,
@@ -43,6 +44,22 @@ async def get_network_interfaces(
     if not settings.AIRGRID_COLLECTOR_ENABLED:
         raise HTTPException(status_code=409, detail="Backend collector disabled. Operator must enable AIRGRID_COLLECTOR_ENABLED on the authorized host.")
     return await run_in_threadpool(telemetry_collector.list_interfaces)
+
+
+@router.get(
+    "/live-connection",
+    response_model=LiveConnectionResponse,
+    summary="Get current connected Wi-Fi status on the backend host",
+)
+async def get_live_connection(
+    current_user: User = Depends(require_authenticated),
+):
+    """
+    Returns genuine real-time link information for the currently active wireless
+    interface on the backend host (read-only, non-scanning, zero network modification).
+    Distinguishes active connection from historical saved records.
+    """
+    return await run_in_threadpool(telemetry_collector.get_live_connection_status)
 
 
 @router.post(

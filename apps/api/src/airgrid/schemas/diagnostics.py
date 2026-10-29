@@ -116,6 +116,9 @@ class TelemetrySnapshotResponse(BaseModel):
     collection_status: str = "collected"
     collection_error: Optional[str] = None
     connection_state: Optional[str] = None
+    age_seconds: Optional[int] = None
+    freshness: Optional[str] = None  # "fresh", "aging", "stale", "unknown"
+    freshness_label: Optional[str] = None
 
     @field_validator("id", "internet_speed_test_id", mode="before")
     @classmethod
@@ -123,6 +126,32 @@ class TelemetrySnapshotResponse(BaseModel):
         if v == "" or v is None:
             return None
         return v
+
+
+class LiveConnectionResponse(BaseModel):
+    is_connected: bool
+    connection_state: str = "disconnected"
+    interface_name: Optional[str] = None
+    ssid: Optional[str] = None
+    bssid: Optional[str] = None
+    frequency_mhz: Optional[int] = None
+    channel: Optional[int] = None
+    channel_width_mhz: Optional[int] = None
+    band: Optional[str] = None
+    rssi_dbm: Optional[float] = None
+    signal_quality_pct: Optional[int] = None
+    rx_bitrate_mbps: Optional[float] = None
+    tx_bitrate_mbps: Optional[float] = None
+    security_protocol: Optional[str] = None
+    measuring_device: str
+    hostname: str
+    ip_address: Optional[str] = None
+    default_gateway: Optional[str] = None
+    data_provenance: str = "live_system_probe"
+    checked_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    age_seconds: int = 0
+    freshness: str = "fresh"  # "fresh", "aging", "stale", "unknown"
+    freshness_label: str = "Fresh (<2m)"
 
 
 class DiagnosticFindingResponse(BaseModel):

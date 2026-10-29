@@ -1,6 +1,7 @@
 import { apiRequest } from './api';
 import {
   InterfaceListResponse,
+  LiveConnectionStatus,
   TelemetrySnapshot,
   GatewayPingResult,
   IperfResult,
@@ -21,6 +22,13 @@ export const diagnosticsService = {
    */
   async getInterfaces(): Promise<InterfaceListResponse> {
     return apiRequest<InterfaceListResponse>('/api/v1/diagnostics/interfaces');
+  },
+
+  /**
+   * Fetches genuine real-time link information for the currently active wireless interface.
+   */
+  async getLiveConnection(): Promise<LiveConnectionStatus> {
+    return apiRequest<LiveConnectionStatus>('/api/v1/diagnostics/live-connection');
   },
 
   /**

@@ -3,7 +3,7 @@ import re
 import shutil
 import socket
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Tuple
 import uuid
 import ipaddress
@@ -364,6 +364,73 @@ class TelemetryCollector:
                     telemetry["channel"] = int((f - 5950) / 5)
 
         return telemetry
+
+    def get_live_connection_status(self) -> Dict[str, Any]:
+        """
+        Reads genuine live connection status for the active wireless interface on the host.
+        Never fabricates values; strictly distinguishes connected vs disconnected state.
+        Identifies measuring device and computes freshness metrics.
+        """
+        interfaces_res = self.list_interfaces()
+        wifi_iface = interfaces_res.discovered_wireless_interface
+
+        now = datetime.now(timezone.utc)
+        if not wifi_iface:
+            return {
+                "is_connected": False,
+                "connection_state": "no_wireless_hardware",
+                "interface_name": None,
+                "ssid": None,
+                "bssid": None,
+                "frequency_mhz": None,
+                "channel": None,
+                "channel_width_mhz": None,
+                "band": None,
+                "rssi_dbm": None,
+                "signal_quality_pct": None,
+                "rx_bitrate_mbps": None,
+                "tx_bitrate_mbps": None,
+                "security_protocol": None,
+                "measuring_device": f"Backend host ({interfaces_res.hostname})",
+                "hostname": interfaces_res.hostname,
+                "ip_address": None,
+                "default_gateway": interfaces_res.default_gateway,
+                "data_provenance": "live_system_probe",
+                "checked_at": now.isoformat(),
+                "age_seconds": 0,
+                "freshness": "fresh",
+                "freshness_label": "Fresh (<2m)",
+            }
+
+        wifi_info = next((i for i in interfaces_res.interfaces if i.name == wifi_iface), None)
+        raw_telemetry = self.collect_wireless_telemetry(wifi_iface)
+        is_connected = bool(raw_telemetry.get("status") == "connected" and raw_telemetry.get("ssid"))
+
+        return {
+            "is_connected": is_connected,
+            "connection_state": "connected" if is_connected else "disconnected",
+            "interface_name": wifi_iface,
+            "ssid": raw_telemetry.get("ssid") if is_connected else None,
+            "bssid": raw_telemetry.get("bssid") if is_connected else None,
+            "frequency_mhz": raw_telemetry.get("frequency_mhz") if is_connected else None,
+            "channel": raw_telemetry.get("channel") if is_connected else None,
+            "channel_width_mhz": raw_telemetry.get("channel_width_mhz") if is_connected else None,
+            "band": raw_telemetry.get("band") if is_connected else None,
+            "rssi_dbm": raw_telemetry.get("rssi_dbm") if is_connected else None,
+            "signal_quality_pct": raw_telemetry.get("signal_quality_pct") if is_connected else None,
+            "rx_bitrate_mbps": raw_telemetry.get("rx_bitrate_mbps") if is_connected else None,
+            "tx_bitrate_mbps": raw_telemetry.get("tx_bitrate_mbps") if is_connected else None,
+            "security_protocol": raw_telemetry.get("security_protocol") if is_connected else None,
+            "measuring_device": f"Backend host ({interfaces_res.hostname})",
+            "hostname": interfaces_res.hostname,
+            "ip_address": wifi_info.ip_address if wifi_info else None,
+            "default_gateway": interfaces_res.default_gateway,
+            "data_provenance": "live_system_probe",
+            "checked_at": now.isoformat(),
+            "age_seconds": 0,
+            "freshness": "fresh",
+            "freshness_label": "Fresh (<2m)",
+        }
 
     def ping_gateway(self, gateway_ip: Optional[str] = None, count: int = 3) -> GatewayPingResult:
         """

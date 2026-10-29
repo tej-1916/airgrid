@@ -37,6 +37,31 @@ from airgrid.services.telemetry_collector import telemetry_collector
 from airgrid.services.diagnostic_engine import diagnostic_engine
 
 
+def calculate_freshness(collected_at: Optional[datetime]) -> Dict[str, Any]:
+    """Computes age and freshness category (fresh <2m, aging 2-5m, stale >5m)."""
+    if not collected_at:
+        return {"age_seconds": None, "category": "unknown", "label": "Timestamp unavailable"}
+    now = datetime.now(timezone.utc)
+    dt = collected_at if collected_at.tzinfo else collected_at.replace(tzinfo=timezone.utc)
+    age = max(0, int((now - dt).total_seconds()))
+    if age < 120:
+        cat = "fresh"
+        label = "Fresh (<2m)"
+    elif age < 300:
+        cat = "aging"
+        label = f"Aging ({int(age/60)}m ago)"
+    else:
+        cat = "stale"
+        if age < 3600:
+            label = f"Stale ({int(age/60)}m ago)"
+        elif age < 86400:
+            label = f"Stale ({int(age/3600)}h ago)"
+        else:
+            days = int(age / 86400)
+            label = f"Stale ({days}d ago)"
+    return {"age_seconds": age, "category": cat, "label": label}
+
+
 def snapshot_to_response(t: NetworkTelemetrySnapshot) -> TelemetrySnapshotResponse:
     """Rebuild the API view of a persisted snapshot without inventing probe values."""
     stored_ping = (t.raw_details or {}).get("gateway_ping")
@@ -55,6 +80,7 @@ def snapshot_to_response(t: NetworkTelemetrySnapshot) -> TelemetrySnapshotRespon
         )
     else:
         gateway_ping = None
+    fresh = calculate_freshness(t.collected_at)
     return TelemetrySnapshotResponse(
         id=t.id,
         interface_name=t.interface_name,
@@ -85,6 +111,9 @@ def snapshot_to_response(t: NetworkTelemetrySnapshot) -> TelemetrySnapshotRespon
         collection_status=t.collection_status or "collected",
         collection_error=t.collection_error,
         connection_state=t.connection_state,
+        age_seconds=fresh["age_seconds"],
+        freshness=fresh["category"],
+        freshness_label=fresh["label"],
     )
 
 

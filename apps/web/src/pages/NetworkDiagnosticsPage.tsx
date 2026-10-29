@@ -12,6 +12,7 @@ import { useCampus } from '../context/CampusContext';
 import { diagnosticsService } from '../services/diagnosticsService';
 import {
   TelemetrySnapshot,
+  LiveConnectionStatus,
   DiagnosticReport,
   CollectTelemetryParams,
 } from '../types/diagnostics';
@@ -42,9 +43,11 @@ export const NetworkDiagnosticsPage: React.FC = () => {
   const [selectedFloorId, setSelectedFloorId] = useState<string>('');
 
   // Diagnostic State
+  const [liveConnection, setLiveConnection] = useState<LiveConnectionStatus | null>(null);
   const [telemetry, setTelemetry] = useState<TelemetrySnapshot | null>(null);
   const [activeReport, setActiveReport] = useState<DiagnosticReport | null>(null);
   const [reportsHistory, setReportsHistory] = useState<DiagnosticReport[]>([]);
+  const [loadingLive, setLoadingLive] = useState<boolean>(false);
   const [loadingTelemetry, setLoadingTelemetry] = useState<boolean>(false);
   const [loadingAnalysis, setLoadingAnalysis] = useState<boolean>(false);
   const [loadingHistory, setLoadingHistory] = useState<boolean>(false);
@@ -83,6 +86,23 @@ export const NetworkDiagnosticsPage: React.FC = () => {
     }
   }, [activeBuilding, selectedFloorId]);
 
+  // Fetch Genuine Live Connection Status
+  const fetchLiveConnection = useCallback(async () => {
+    try {
+      setLoadingLive(true);
+      const live = await diagnosticsService.getLiveConnection();
+      setLiveConnection(live);
+    } catch (err: any) {
+      console.warn('Failed to load live connection status:', err);
+    } finally {
+      setLoadingLive(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchLiveConnection();
+  }, [fetchLiveConnection]);
+
   // Fetch Reports History
   const fetchReports = useCallback(async () => {
     try {
@@ -119,6 +139,7 @@ export const NetworkDiagnosticsPage: React.FC = () => {
       setErrorBanner(null);
       const snap = await diagnosticsService.collectTelemetry(params);
       setTelemetry(snap);
+      fetchLiveConnection();
     } catch (err: any) {
       setErrorBanner(err.message || 'Telemetry collection failed.');
       throw err;
@@ -328,8 +349,11 @@ export const NetworkDiagnosticsPage: React.FC = () => {
 
       {/* Live Telemetry Display */}
       <TelemetryLiveCard
+        liveConnection={liveConnection}
         telemetry={telemetry}
+        loadingLive={loadingLive}
         loading={loadingTelemetry}
+        onCheckLiveLink={fetchLiveConnection}
         onRefresh={() => setIsConsentModalOpen(true)}
         onCollectNew={() => setIsConsentModalOpen(true)}
       />

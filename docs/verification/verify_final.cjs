@@ -84,6 +84,31 @@ async function main() {
     if (p === '/api/v1/dashboard/system-status') return send({ overall: 'operational', components: [], timestamp });
     if (p.startsWith('/api/v1/dashboard/')) return send({ items: [], total: 0 });
     if (p === '/api/v1/diagnostics/reports') return send({ reports: [report], total: 1, skip: 0, limit: 100 });
+    if (p === '/api/v1/diagnostics/live-connection') return send({
+      is_connected: true,
+      connection_state: 'connected',
+      interface_name: 'fixture0',
+      ssid: 'ISOLATED FIXTURE NETWORK',
+      bssid: '00:11:22:33:44:55',
+      frequency_mhz: 5200,
+      channel: 40,
+      channel_width_mhz: 40,
+      band: '5 GHz',
+      rssi_dbm: -67.0,
+      signal_quality_pct: 75,
+      rx_bitrate_mbps: 300.0,
+      tx_bitrate_mbps: 260.0,
+      security_protocol: 'WPA2-PSK',
+      measuring_device: 'Isolated Fixture Host',
+      hostname: 'fixture-host',
+      ip_address: '192.168.1.100',
+      default_gateway: '192.168.1.1',
+      data_provenance: 'live_system_probe',
+      checked_at: timestamp,
+      age_seconds: 0,
+      freshness: 'fresh',
+      freshness_label: 'Fresh (<2m)',
+    });
     if (p === '/api/v1/diagnostics/interfaces') return send({ detail: 'Backend collector disabled. ISOLATED FIXTURE.' }, 409);
     if (/diagnostics\/(collect|ping-gateway|iperf)/.test(p)) {
       probeAttempts++;
@@ -208,8 +233,16 @@ async function main() {
     ];
 
     for (const route of allRoutes) {
+      console.log(`Navigating to ${route}...`);
       await page.goto(base + route);
-      await page.locator('h1').first().waitFor();
+      try {
+        await page.locator('h1').first().waitFor();
+      } catch (err) {
+        console.error(`Timeout waiting for h1 on ${route}. Current URL: ${page.url()}`);
+        const bodyContent = await page.locator('body').innerHTML();
+        console.error(`Body snippet: ${bodyContent.slice(0, 300)}`);
+        throw err;
+      }
       const h1Text = (await page.locator('h1').first().textContent()).trim();
       assert.ok(h1Text, `Route ${route} rendered empty h1`);
       await page.waitForLoadState('networkidle');

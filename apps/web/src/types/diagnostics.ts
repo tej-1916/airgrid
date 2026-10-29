@@ -72,6 +72,35 @@ export interface TelemetrySnapshot {
   collection_status?: 'collected' | 'partial' | 'failed' | string;
   collection_error?: string | null;
   connection_state?: string | null;
+  age_seconds?: number | null;
+  freshness?: 'fresh' | 'aging' | 'stale' | 'unknown' | string;
+  freshness_label?: string | null;
+}
+
+export interface LiveConnectionStatus {
+  is_connected: boolean;
+  connection_state: string;
+  interface_name: string | null;
+  ssid: string | null;
+  bssid: string | null;
+  frequency_mhz: number | null;
+  channel: number | null;
+  channel_width_mhz: number | null;
+  band: string | null;
+  rssi_dbm: number | null;
+  signal_quality_pct: number | null;
+  rx_bitrate_mbps: number | null;
+  tx_bitrate_mbps: number | null;
+  security_protocol: string | null;
+  measuring_device: string;
+  hostname: string;
+  ip_address: string | null;
+  default_gateway: string | null;
+  data_provenance: string;
+  checked_at: string;
+  age_seconds: number;
+  freshness: 'fresh' | 'aging' | 'stale' | string;
+  freshness_label: string;
 }
 
 export interface DiagnosticFinding {

@@ -428,3 +428,156 @@ async def test_analyze_and_persist_diagnostic_report(
     # Confirm deletion
     get_again = await client.get(f"/api/v1/diagnostics/reports/{report_id}")
     assert get_again.status_code == 404
+
+
+def test_calculate_freshness_logic():
+    from airgrid.services.diagnostic_service import calculate_freshness
+    from datetime import datetime, timezone, timedelta
+
+    now = datetime.now(timezone.utc)
+    
+    # None timestamp
+    assert calculate_freshness(None)["category"] == "unknown"
+
+    # Fresh (<2 min)
+    fresh_dt = now - timedelta(seconds=30)
+    res_fresh = calculate_freshness(fresh_dt)
+    assert res_fresh["category"] == "fresh"
+    assert "Fresh" in res_fresh["label"]
+
+    # Aging (2-5 min)
+    aging_dt = now - timedelta(minutes=3)
+    res_aging = calculate_freshness(aging_dt)
+    assert res_aging["category"] == "aging"
+    assert "Aging" in res_aging["label"]
+
+    # Stale (e.g. 15 min, 3 hours, 2 days)
+    stale_dt_1 = now - timedelta(minutes=15)
+    res_stale_1 = calculate_freshness(stale_dt_1)
+    assert res_stale_1["category"] == "stale"
+    assert "15m ago" in res_stale_1["label"]
+
+    stale_dt_2 = now - timedelta(hours=3)
+    res_stale_2 = calculate_freshness(stale_dt_2)
+    assert res_stale_2["category"] == "stale"
+    assert "3h ago" in res_stale_2["label"]
+
+    stale_dt_3 = now - timedelta(days=2)
+    res_stale_3 = calculate_freshness(stale_dt_3)
+    assert res_stale_3["category"] == "stale"
+    assert "2d ago" in res_stale_3["label"]
+
+
+@pytest.mark.asyncio
+async def test_get_live_connection_endpoint(
+    client: AsyncClient,
+    engineer_auth: dict,
+    monkeypatch,
+):
+    client.cookies = engineer_auth["cookies"]
+    monkeypatch.setattr(
+        TelemetryCollector,
+        "get_live_connection_status",
+        lambda self: {
+            "is_connected": True,
+            "connection_state": "connected",
+            "interface_name": "wlp0s20f3",
+            "ssid": "Jain_Student",
+            "bssid": "80:BC:37:8D:41:EC",
+            "frequency_mhz": 5540,
+            "channel": 108,
+            "channel_width_mhz": 40,
+            "band": "5 GHz",
+            "rssi_dbm": -36.0,
+            "signal_quality_pct": 81,
+            "rx_bitrate_mbps": 270.0,
+            "tx_bitrate_mbps": 200.0,
+            "security_protocol": "WPA2",
+            "measuring_device": "Backend host (ostra)",
+            "hostname": "ostra",
+            "ip_address": "172.20.193.203",
+            "default_gateway": "172.20.192.1",
+            "data_provenance": "live_system_probe",
+            "checked_at": "2026-10-29T05:51:53.358520+00:00",
+            "age_seconds": 0,
+            "freshness": "fresh",
+            "freshness_label": "Fresh (<2m)",
+        },
+    )
+
+    res = await client.get("/api/v1/diagnostics/live-connection")
+    assert res.status_code == 200
+    data = res.json()
+    assert data["is_connected"] is True
+    assert data["ssid"] == "Jain_Student"
+    assert data["interface_name"] == "wlp0s20f3"
+    assert data["rssi_dbm"] == -36.0
+    assert data["freshness"] == "fresh"
+    assert data["data_provenance"] == "live_system_probe"
+
+
+@pytest.mark.asyncio
+async def test_analyst_network_mismatch_disclosure(
+    client: AsyncClient,
+    engineer_auth: dict,
+    monkeypatch,
+):
+    client.cookies = engineer_auth["cookies"]
+    # Mock live connection as Jain_Student
+    monkeypatch.setattr(
+        TelemetryCollector,
+        "get_live_connection_status",
+        lambda self: {
+            "is_connected": True,
+            "connection_state": "connected",
+            "interface_name": "wlp0s20f3",
+            "ssid": "Jain_Student",
+            "bssid": "80:BC:37:8D:41:EC",
+            "measuring_device": "Backend host (ostra)",
+            "hostname": "ostra",
+            "data_provenance": "live_system_probe",
+        },
+    )
+
+    # Create a report for a DIFFERENT network (e.g. MOJO-JAN-C2-F1)
+    hist_telemetry = {
+        "interface_name": "wlp0s20f3",
+        "ssid": "MOJO-JAN-C2-F1",
+        "bssid": "02:00:00:00:00:03",
+        "rssi_dbm": -62.0,
+        "frequency_mhz": 5200,
+        "channel": 40,
+        "band": "5 GHz",
+        "rx_bitrate_mbps": 960.7,
+        "tx_bitrate_mbps": 864.6,
+        "operator_consent": True,
+        "vantage_point": "operator_supplied",
+        "data_provenance": "operator_reported",
+    }
+    report_res = await client.post(
+        "/api/v1/diagnostics/analyze",
+        headers={"X-CSRF-Token": engineer_auth["csrf_token"]},
+        json={
+            "title": "Historical MOJO Audit",
+            "telemetry": hist_telemetry,
+            "operator_consent": True,
+        },
+    )
+    assert report_res.status_code == 201
+    report_id = report_res.json()["id"]
+
+    # Run analyst
+    analyst_res = await client.post(
+        "/api/v1/analyst/analyze",
+        headers={"X-CSRF-Token": engineer_auth["csrf_token"]},
+        json={"report_id": report_id},
+    )
+    assert analyst_res.status_code == 200
+    analyst_data = analyst_res.json()
+    # Check that network mismatch is explicitly disclosed in limitations
+    limitations = analyst_data["limitations"]
+    mismatch_limitations = [lim for lim in limitations if "Network mismatch" in lim]
+    assert len(mismatch_limitations) == 1
+    assert "MOJO-JAN-C2-F1" in mismatch_limitations[0]
+    assert "Jain_Student" in mismatch_limitations[0]
+

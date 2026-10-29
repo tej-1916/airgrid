@@ -38,6 +38,15 @@ class AnalystService:
             'Browser speed tests and backend wireless observations may describe different devices and times. Missing source timestamps remain unavailable.',
             'Model metadata is provider-reported, not independently attested. No model may execute tools or change network configuration.',
         ]
+        try:
+            from airgrid.services.telemetry_collector import telemetry_collector
+            live_status = telemetry_collector.get_live_connection_status()
+            if live_status.get("is_connected") and live_status.get("ssid"):
+                curr_ssid = live_status["ssid"]
+                if telemetry.ssid and telemetry.ssid.lower() != curr_ssid.lower():
+                    limitations.insert(0, f"Network mismatch: Report describes historical network '{telemetry.ssid}', while this host is currently connected to '{curr_ssid}'. Findings may not reflect the active wireless environment.")
+        except Exception:
+            pass
         result = AnalystResponse(report_id=report.id, summary=summary, evidence=evidence, findings=rows, limitations=limitations)
         if not req.use_gateway:
             return result
