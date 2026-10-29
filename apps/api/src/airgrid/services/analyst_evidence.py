@@ -210,6 +210,8 @@ async def telemetry(db: AsyncSession, req, since: datetime) -> list[NetworkTelem
         q = q.where(NetworkTelemetrySnapshot.collector_id == req.collector_id)
     if req.floor_id:
         q = q.where(NetworkTelemetrySnapshot.floor_id == req.floor_id)
+    if getattr(req, "network_label", None):
+        q = q.where(NetworkTelemetrySnapshot.ssid == req.network_label)
     rows = list((await db.execute(q.order_by(desc(NetworkTelemetrySnapshot.collected_at)).limit(2000))).scalars())
     return sorted(rows, key=lambda r: _utc(r.collected_at))
 
@@ -238,7 +240,7 @@ async def answer_weak_signal(db, req, since):
     groups = {}
     for r in rows:
         groups.setdefault(source_key(r), []).append(r)
-    source, group = max(groups.items(), key=lambda kv: len(kv[1]))
+    source, group = max(groups.items(), key=lambda kv: (len(kv[1]), _utc(kv[1][-1].collected_at)))
     latest = group[-1]
     findings, _, _ = diagnostic_engine.analyze(snapshot_to_response(latest))
     signal = [f for f in findings if f.metric_key in ("rssi_dbm", "band", "frequency_mhz", "rx_bitrate_mbps")]
@@ -453,7 +455,15 @@ async def ask(db: AsyncSession, req: AskRequest, user: User) -> dict:
             result["gateway_status"], result["provider_reported_model"] = response.status, response.verified_model
             if response.status == "success":
                 try:
-                    candidate = GatewayAnswer.model_validate_json(response.output_text)
+                    text = response.output_text.strip()
+                    if text.startswith("```"):
+                        lines = text.splitlines()
+                        if lines[0].startswith("```"):
+                            lines = lines[1:]
+                        if lines and lines[-1].strip() == "```":
+                            lines = lines[:-1]
+                        text = "\n".join(lines).strip()
+                    candidate = GatewayAnswer.model_validate_json(text)
                     if grounded(candidate, local, req.question):
                         result.update(answer=candidate.answer, mode="gateway_assisted", gateway_citations=candidate.citations)
                     else:
