@@ -223,9 +223,10 @@ export const SpeedTestPage: React.FC = () => {
     setSaveStatus(null);
 
     try {
+      const durationDeadlineMs = (config?.duration_seconds ? config.duration_seconds : 10) * 1000;
       const finalMetrics = await cloudflareSpeedTestAdapter.start((state) => {
         setTestState(state);
-      });
+      }, durationDeadlineMs);
 
       // Automatically persist completed measurement
       try {
@@ -257,10 +258,18 @@ export const SpeedTestPage: React.FC = () => {
       // Start 10s cooldown
       setCooldownSeconds(10);
     } catch (err: any) {
-      // Test aborted or failed
+      // Test aborted or failed (e.g. USER_ABORTED or DURATION_LIMIT_EXCEEDED)
       const currentState = cloudflareSpeedTestAdapter.getState();
-      if (currentState.phase === 'aborted' || err.message === 'USER_ABORTED') {
-        // Persist aborted state
+      if (
+        currentState.phase === 'aborted' ||
+        err.message === 'USER_ABORTED' ||
+        err.message === 'DURATION_LIMIT_EXCEEDED'
+      ) {
+        const isDurationExceeded =
+          err.message === 'DURATION_LIMIT_EXCEEDED' ||
+          currentState.error?.includes('duration limit exceeded');
+
+        // Persist aborted/capped state
         try {
           const savedRecord = await speedTestService.saveSpeedTest({
             provider_engine: 'cloudflare',
@@ -270,8 +279,11 @@ export const SpeedTestPage: React.FC = () => {
             upload_mbps: currentState.metrics.uploadMbps,
             latency_ms: currentState.metrics.latencyMs,
             jitter_ms: currentState.metrics.jitterMs,
-            error_code: 'USER_ABORTED',
-            error_message: 'Test cancelled by operator',
+            duration_seconds: currentState.metrics.durationSeconds,
+            error_code: isDurationExceeded ? 'DURATION_LIMIT_EXCEEDED' : 'USER_ABORTED',
+            error_message: isDurationExceeded
+              ? currentState.error || 'Test cancelled: duration limit exceeded (10s)'
+              : 'Test cancelled by operator',
             campus_id: associateLocation && selectedCampus ? selectedCampus : undefined,
             building_id: associateLocation && selectedBuilding ? selectedBuilding : undefined,
             floor_id: associateLocation && selectedFloor ? selectedFloor : undefined,

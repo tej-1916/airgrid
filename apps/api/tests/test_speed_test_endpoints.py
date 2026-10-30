@@ -354,3 +354,44 @@ async def test_speed_test_config_endpoint(client: AsyncClient, operator_auth: di
     assert data["default_provider"] == "cloudflare"
     assert "cloudflare" in data["supported_providers"]
 
+
+@pytest.mark.asyncio
+async def test_speed_test_bounded_cancellation_duration_limit(
+    client: AsyncClient, operator_auth: dict
+):
+    """Verify that records aborted by duration limit bounded cancellation are saved and retrieved."""
+    headers = operator_auth["headers"]
+    client.cookies.update(operator_auth["cookies"])
+
+    payload = {
+        "provider_engine": "cloudflare",
+        "status": "aborted",
+        "download_mbps": 78.4,
+        "upload_mbps": None,
+        "latency_ms": 14.5,
+        "jitter_ms": 1.2,
+        "duration_seconds": 10.0,
+        "error_code": "DURATION_LIMIT_EXCEEDED",
+        "error_message": "Test cancelled: duration limit exceeded (10s)",
+    }
+
+    resp = await client.post("/api/v1/speed-tests", json=payload, headers=headers)
+    assert resp.status_code == 201
+    data = resp.json()
+
+    assert data["status"] == "aborted"
+    assert data["error_code"] == "DURATION_LIMIT_EXCEEDED"
+    assert data["error_message"] == "Test cancelled: duration limit exceeded (10s)"
+    assert data["duration_seconds"] == 10.0
+    assert data["download_mbps"] == 78.4
+    assert data["data_provenance"] == "client_reported"
+
+    # Verify retrieval
+    test_id = data["id"]
+    get_resp = await client.get(f"/api/v1/speed-tests/{test_id}", headers=headers)
+    assert get_resp.status_code == 200
+    retrieved = get_resp.json()
+    assert retrieved["error_code"] == "DURATION_LIMIT_EXCEEDED"
+    assert retrieved["duration_seconds"] == 10.0
+
+

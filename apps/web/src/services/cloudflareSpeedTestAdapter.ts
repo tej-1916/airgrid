@@ -16,12 +16,57 @@ export class CloudflareSpeedTestAdapter implements SpeedTestProvider {
   private isAborted = false;
   private isPaused = false;
   private startTime = 0;
+  private deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+  private maxDurationMs = 10000;
+  private remainingDurationMs = 10000;
+  private lastResumeTime = 0;
   private onUpdateCallback: ((state: SpeedTestState) => void) | null = null;
   private currentState: SpeedTestState = this.getInitialState();
   private rejectPromise?: (reason?: any) => void;
 
+  constructor(private engineFactory?: (opts: any) => any) {}
+
   getState(): SpeedTestState {
     return { ...this.currentState };
+  }
+
+  private clearDeadlineTimer(): void {
+    if (this.deadlineTimer) {
+      clearTimeout(this.deadlineTimer);
+      this.deadlineTimer = null;
+    }
+  }
+
+  private handleDeadlineExceeded(): void {
+    if (!this.currentState.isRunning && !this.isPaused) return;
+    this.isAborted = true;
+    this.clearDeadlineTimer();
+
+    try {
+      if (this.engine) {
+        this.engine.pause();
+      }
+    } catch (e) {
+      // Ignore
+    }
+
+    this.updateMetricsFromEngine();
+    const duration = Math.round((Date.now() - this.startTime) / 100) / 10;
+
+    this.currentState.isRunning = false;
+    this.currentState.isPaused = false;
+    this.currentState.phase = 'aborted';
+    this.currentState.currentPhaseName = `Cancelled — Duration Limit Exceeded (${this.maxDurationMs / 1000}s)`;
+    this.currentState.completedAt = new Date().toISOString();
+    this.currentState.error = `Test cancelled: duration limit exceeded (${this.maxDurationMs / 1000}s)`;
+    this.currentState.metrics.durationSeconds = duration;
+    this.emitUpdate();
+
+    if (this.rejectPromise) {
+      const reject = this.rejectPromise;
+      this.rejectPromise = undefined;
+      reject(new Error('DURATION_LIMIT_EXCEEDED'));
+    }
   }
 
   private getInitialState(): SpeedTestState {
@@ -37,7 +82,10 @@ export class CloudflareSpeedTestAdapter implements SpeedTestProvider {
     };
   }
 
-  async start(onUpdate: (state: SpeedTestState) => void): Promise<SpeedTestMetrics> {
+  async start(
+    onUpdate: (state: SpeedTestState) => void,
+    maxDurationMs: number = 10000
+  ): Promise<SpeedTestMetrics> {
     if (this.currentState.isRunning) {
       throw new Error('A speed test is already active in this browser session.');
     }
@@ -46,6 +94,10 @@ export class CloudflareSpeedTestAdapter implements SpeedTestProvider {
     this.isAborted = false;
     this.isPaused = false;
     this.startTime = Date.now();
+    this.maxDurationMs = maxDurationMs;
+    this.remainingDurationMs = maxDurationMs;
+    this.lastResumeTime = Date.now();
+    this.clearDeadlineTimer();
 
     this.currentState = {
       phase: 'preparing',
@@ -71,7 +123,7 @@ export class CloudflareSpeedTestAdapter implements SpeedTestProvider {
         // - Estimated Total Wire Traffic (including TLS, HTTP/2 framing & loaded latency probes): ~14.5 - 16.0 MB
         // IMPORTANT: This traffic ceiling is an approximate conservative upper bound derived from
         // discrete chunk scheduling, NOT a kernel-enforced packet-level hard quota.
-        this.engine = new SpeedTest({
+        const engineOptions = {
           autoStart: false,
           logMeasurementApiUrl: null,
           logAimApiUrl: null,
@@ -79,14 +131,21 @@ export class CloudflareSpeedTestAdapter implements SpeedTestProvider {
           measureUploadLoadedLatency: true,
           bandwidthFinishRequestDuration: 1000,
           measurements: [
-            { type: 'latency', numPackets: 8 },
-            { type: 'download', bytes: 250000, count: 2 },
-            { type: 'download', bytes: 1000000, count: 2 },
-            { type: 'download', bytes: 4000000, count: 2 },
-            { type: 'upload', bytes: 250000, count: 2 },
-            { type: 'upload', bytes: 1000000, count: 2 },
+            { type: 'latency' as const, numPackets: 8 },
+            { type: 'download' as const, bytes: 250000, count: 2 },
+            { type: 'download' as const, bytes: 1000000, count: 2 },
+            { type: 'download' as const, bytes: 4000000, count: 2 },
+            { type: 'upload' as const, bytes: 250000, count: 2 },
+            { type: 'upload' as const, bytes: 1000000, count: 2 },
           ],
-        });
+        };
+
+        this.engine = this.engineFactory ? this.engineFactory(engineOptions) : new SpeedTest(engineOptions);
+
+        // Arm bounded duration cancellation timer
+        this.deadlineTimer = setTimeout(() => {
+          this.handleDeadlineExceeded();
+        }, this.remainingDurationMs);
 
         // 1. Phase change listener
         this.engine.onPhaseChange = (payload: { measurementId: number; measurement: { type: string } }) => {
@@ -134,6 +193,7 @@ export class CloudflareSpeedTestAdapter implements SpeedTestProvider {
         // 4. Error listener
         this.engine.onError = (message: string) => {
           if (this.isAborted) return;
+          this.clearDeadlineTimer();
           this.currentState.isRunning = false;
           this.currentState.phase = 'failed';
           this.currentState.error = message || 'Cloudflare measurement request failed';
@@ -146,6 +206,7 @@ export class CloudflareSpeedTestAdapter implements SpeedTestProvider {
         // 5. Completion listener
         this.engine.onFinish = () => {
           if (this.isAborted) return;
+          this.clearDeadlineTimer();
           const duration = Math.round((Date.now() - this.startTime) / 100) / 10;
           this.updateMetricsFromEngine();
           this.currentState.isRunning = false;
@@ -162,6 +223,7 @@ export class CloudflareSpeedTestAdapter implements SpeedTestProvider {
         // Explicit user-initiated start
         this.engine.play();
       } catch (err: any) {
+        this.clearDeadlineTimer();
         this.currentState.isRunning = false;
         this.currentState.phase = 'failed';
         this.currentState.error = err.message || 'Initialization error';
@@ -208,6 +270,9 @@ export class CloudflareSpeedTestAdapter implements SpeedTestProvider {
     if (!this.currentState.isRunning || this.isPaused || !this.engine) return;
     try {
       this.engine.pause();
+      const elapsed = Date.now() - this.lastResumeTime;
+      this.remainingDurationMs = Math.max(0, this.remainingDurationMs - elapsed);
+      this.clearDeadlineTimer();
       this.isPaused = true;
       this.currentState.isPaused = true;
       this.currentState.phase = 'paused';
@@ -223,6 +288,11 @@ export class CloudflareSpeedTestAdapter implements SpeedTestProvider {
     try {
       this.engine.play();
       this.isPaused = false;
+      this.lastResumeTime = Date.now();
+      this.clearDeadlineTimer();
+      this.deadlineTimer = setTimeout(() => {
+        this.handleDeadlineExceeded();
+      }, Math.max(100, this.remainingDurationMs));
       this.currentState.isPaused = false;
       this.currentState.phase = this.currentState.metrics.uploadMbps !== undefined ? 'upload' : 'download';
       this.currentState.currentPhaseName = 'Resuming measurement...';
@@ -235,6 +305,7 @@ export class CloudflareSpeedTestAdapter implements SpeedTestProvider {
   abort(): void {
     if (!this.currentState.isRunning && !this.isPaused) return;
     this.isAborted = true;
+    this.clearDeadlineTimer();
     try {
       if (this.engine) {
         this.engine.pause();

@@ -10,7 +10,7 @@ export interface SpeedTestProvider {
   readonly supportsPacketLoss: boolean;
   readonly packetLossDisclaimer: string;
 
-  start(onUpdate: (state: SpeedTestState) => void): Promise<SpeedTestMetrics>;
+  start(onUpdate: (state: SpeedTestState) => void, maxDurationMs?: number): Promise<SpeedTestMetrics>;
   getState(): SpeedTestState;
   pause(): void;
   resume(): void;
