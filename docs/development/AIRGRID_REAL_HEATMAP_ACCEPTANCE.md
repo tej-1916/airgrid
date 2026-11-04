@@ -1,21 +1,26 @@
 # AirGrid Milestone 3B: Real Wi-Fi Heatmaps Acceptance Report
 
-**Date:** November 4, 2026  
+**Date:** November 5, 2026  
 **Branch:** `feat/airgrid-real-network-intelligence`  
+**Checkpoint Commit:** `2e9b62f`  
 **Milestone:** Milestone 3B: Real Wi-Fi Heatmaps (Full-Stack Spatial Architecture, Genuine Read-Only Telemetry Integration, Inverse-Distance Weighting, Radial & Convex-Hull Masking, Leave-One-Out Cross-Validation, and Operator Survey Workflow)  
-**Overall Status:** **COMPLETED & FORMALLY ACCEPTED**
+
+### Status Breakdown:
+* **Software Implementation:** **COMPLETED** (Full-stack API, IDW engine, LOOCV harness, canvas viewer, live telemetry probe, repositioning with audit trail).
+* **Automated Verification:** **COMPLETED** (212 backend tests passed, TypeScript build clean, Playwright E2E passed on 1440×900 and 390×844 with 0 console errors, Alembic schema clean, operational `airgrid_db` preserved).
+* **Physical Survey Workflow:** **PREPARED & VERIFIED READY** (Operator walk-through protocol, calibration prerequisites, live read-only telemetry capture from interface `wlp0s20f3` on `MOJO-JAN-C2-F1`, LOOCV validation harness).
+* **Genuine Spatial Validation:** **PENDING OPERATOR FIELD SURVEY** (Awaiting physical walk-through with real site floor plan and genuine physical measurements).
+* **Overall Status:** **SOFTWARE & AUTOMATION VERIFIED (PHYSICAL FIELD SURVEY PENDING)**
 
 ---
 
 ## 1. Executive Summary
 
-Milestone 3B completes AirGrid's genuine spatial Wi-Fi heatmap and site-survey capability. It delivers an end-to-end workflow transforming authentic, authorized, spatially located physical wireless measurements into scientifically grounded floor-plan coverage maps without synthetic fabrication, packet capturing, credential interception, or unwarranted spatial extrapolation.
+Milestone 3B establishes AirGrid's genuine spatial Wi-Fi heatmap and site-survey capability. It delivers an end-to-end workflow transforming authentic, authorized, spatially located physical wireless measurements into scientifically grounded floor-plan coverage maps without synthetic fabrication, packet capturing, credential interception, or unwarranted spatial extrapolation.
 
-Prior to this milestone, spatial coverage estimation could display confident signal predictions far outside measured regions, lacked empirical error metrics, lacked live wireless telemetry linkage (negotiated PHY rates and interface data), and did not provide an audited mechanism for repositioning misplaced measurement points.
-
-Through Milestone 3B, AirGrid establishes and validates:
-1. **Calibrated Coordinate & Spatial Scaling System:** Real-world dimensions (meters) mapped to floor plan pixels with strict coordinate boundary enforcement, preventing distorted heatmaps or unscaled estimations.
-2. **Read-Only Live Wireless Telemetry Capture:** Manually initiated capture (`POST /api/v1/surveys/{id}/measurements/collect-live`) querying the active wireless interface (`wlp0s20f3`) via Linux `iw` and `NetworkManager`. Records genuine RSSI (dBm), channel, frequency (MHz), band, BSSID, and negotiated PHY bitrates (RX/TX Mbps) linked to a persistent `NetworkTelemetrySnapshot` with provenance `field_instrument_verified`.
+### Completed & Automated Quality Gates:
+1. **Calibrated Coordinate & Spatial Scaling System:** Real-world dimensions (meters) mapped to floor plan pixels with strict coordinate boundary enforcement in [`FloorPlanSurveyCanvas.tsx`](file:///home/teju/Projects/airgrid/apps/web/src/components/survey/FloorPlanSurveyCanvas.tsx) and [`survey_service.py`](file:///home/teju/Projects/airgrid/apps/api/src/airgrid/services/survey_service.py).
+2. **Read-Only Live Wireless Telemetry Capture:** Manually initiated capture (`POST /api/v1/surveys/{id}/measurements/collect-live`) querying active wireless interface (`wlp0s20f3`) via Linux `iw` and `NetworkManager`. Records genuine RSSI (dBm), channel, frequency (MHz), band, BSSID, and negotiated PHY bitrates (`rx_bitrate_mbps`, `tx_bitrate_mbps`) linked to a persistent `NetworkTelemetrySnapshot` with provenance `field_instrument_verified`.
 3. **Rigorous Spatial Interpolation (IDW + Radial Cutoff + Convex Hull):** Inverse-distance weighting with power $p=2.0$, smoothing parameter $\epsilon=0.5$ m, an 18.0 m maximum influence radius, and Andrew's Monotone Chain 2D convex hull with a 4.0 m buffer. Areas beyond measured support are strictly masked (`null`) and rendered transparent on the canvas ("Unknown / Unmeasured Area") rather than colored as fake weak signal.
 4. **Interactive Repositioning with Immutable Audit Trail:** Enables operators to correct mistaken coordinate placements (`PATCH /api/v1/surveys/{id}/measurements/{id}/reposition`) with boundary validation and mandatory audit logging (`action="survey.measurement_repositioned"`).
 5. **Leave-One-Out Cross-Validation (LOOCV):** Statistical model evaluation (`GET /api/v1/surveys/{id}/validation`) that systematically holds out individual observations, calculates interpolated predictions from remaining points, and reports empirical Mean Absolute Error (MAE in dBm), RMSE, signed error bounds, error distribution histograms, and sparsity alerts.
@@ -28,8 +33,8 @@ Through Milestone 3B, AirGrid establishes and validates:
 
 ```mermaid
 flowchart TD
-    subgraph Host["Measuring Host (Arch Linux Linux 6.16)"]
-        NIC["Wi-Fi Interface: wlp0s20f3\nConnected: MOJO-JAN-C2-F1 / 5 GHz Ch 40\nPHY Link: 1297 Mbps RX / 1152 Mbps TX / -53 dBm"]
+    subgraph Host["Measuring Host (Arch Linux x86_64)"]
+        NIC["Wi-Fi Interface: wlp0s20f3\nConnected: MOJO-JAN-C2-F1 / 5 GHz Ch 40\nPHY Link: 576.4 Mbps RX / 244.9 Mbps TX / -59 dBm"]
         Browser["AirGrid Survey Studio Client (Port 5173)\n/heatmaps route"]
         Canvas["FloorPlanSurveyCanvas\nCalibrated Scaling (px/m) & Zoom/Pan"]
         TelemetryPanel["SignalMeasurementPanel\nLive Telemetry Card & Capture Button"]
@@ -67,117 +72,91 @@ flowchart TD
 
 ---
 
-## 3. Spatial Interpolation & RF Classification Standards
+## 3. Existing Operational Database & Floor-Plan Audit
 
-### Inverse-Distance Weighting (IDW) Specification
-The spatial signal estimator computes expected RSSI at cell coordinate $(x_c, y_c)$ from all active survey observations $i \in \{1 \dots N\}$ belonging to the selected SSID:
+An audit of the operational database (`airgrid_db`) reveals:
 
-$$w_i = \frac{1}{(d_i + \epsilon)^p}$$
+### Existing Campuses & Floor Plans:
+1. **Cal Tech Campus** (`CAL-9ED9BA`):
+   - Building: `Robotics Lab` (`ROB-1`)
+   - Floor: `Upper Lab` (Level 2, ID: `fdfc9b0c-43dc-450d-a47e-6830013b3b4c`, 50×30 m)
+   - Floor Plan Asset: `c9f75276-c3e7-4908-9092-b237b7360173` (1000×600 px, scale: 20.0 px/m, Calibrated: True)
+   - Status: **Synthetic / Demo Fixture** (Created during early multi-tenant development).
+2. **Cal Tech Campus** (`CAL-C5F0FD`):
+   - Duplicate demo fixture from isolated test suite runs.
+3. **North Engineering Campus** (`NEC-NORTH`):
+   - Building: `Ada Lovelace Computing Center` (`ALC-01`)
+   - Floor: `Level 1 - High-Density Labs` (Level 1, ID: `1fac63ec-befc-42d4-9862-a65018f002bf`, 60×40 m)
+   - Floor Plan Asset: `7fe993f3-7199-4422-9afd-682dcc668237` (1200×800 px, scale: 20.0 px/m, Calibrated: True)
+   - Status: **Synthetic / Demo Fixture** (Created for initial UI mockups).
+4. **Validation Campus** (`VAL-338700`):
+   - Minimal test campus with no floor plan image attached.
 
-$$\hat{S}(x_c, y_c) = \frac{\sum_{i=1}^N w_i \cdot \text{RSSI}_i}{\sum_{i=1}^N w_i}$$
+### Existing Survey Data in `airgrid_db`:
+- **Session 1:** `Q3 Baseline Preliminary Survey` (Floor: `1fac63ec-befc-42d4-9862-a65018f002bf`, 5 points)
+  - Network: `AirGrid-Legacy`
+  - Provenance: `controlled_test_import` (Historical test fixture)
+- **Session 2:** `Q4 High-Density Lab Signal Assessment` (Floor: `1fac63ec-befc-42d4-9862-a65018f002bf`, 8 points)
+  - Network: `AirGrid-Lab-5G`
+  - Provenance: `controlled_test_import` and `operator_reported`
 
-* **Distance Metric:** Euclidean distance $d_i = \frac{\sqrt{(x_c - x_i)^2 + (y_c - y_i)^2}}{\text{scale}}$ in real-world meters.
-* **Weighting Power:** $p = 2.0$ (standard inverse-square RF free-space propagation decay).
-* **Smoothing Factor:** $\epsilon = 0.5$ m (prevents division by zero and numerical instability near sample points).
-* **Maximum Radial Cutoff:** $R_{\max} = 18.0$ m. Cells where the nearest physical sample exceeds 18 meters are masked (`null`).
-* **Convex Hull Support:** Andrew's Monotone Chain 2D convex hull algorithm calculates the outer polygon enclosing all survey points, buffered by $B = 4.0$ m. Points outside the buffered hull boundary are masked (`null`).
+### Finding on Real-World Ground Truth:
+**None of the existing records in `airgrid_db` represent the physical building where the measuring device currently resides.** All existing records were preserved untouched as historical development assets.
 
-### IEEE 802.11 RF Signal Strength Bands
-AirGrid adheres to established IEEE 802.11 engineering thresholds:
-
-| Band | RSSI Range | Visual Hex | Classification & Engineering Meaning |
-| :--- | :--- | :--- | :--- |
-| **Strong** | $\ge -50\text{ dBm}$ | `#10B981` (Emerald) | Excellent signal; maximum modulation and coding scheme (MCS) throughput. |
-| **Good** | $-50\text{ to } -67\text{ dBm}$ | `#0D9488` (Teal) | Standard reliable commercial enterprise Wi-Fi coverage; supports VoWiFi and 4K streaming. |
-| **Moderate** | $-67\text{ to } -75\text{ dBm}$ | `#D97706` (Amber) | Minimum threshold for latency-sensitive applications; roaming boundaries typically begin here. |
-| **Weak** | $< -75\text{ dBm}$ | `#E11D48` (Rose) | Degraded performance, frame drops, low MCS rates, near connection loss. |
-| **Unknown** | Outside 18m / Hull | `Transparent` / Dashed | **Unmeasured Area:** No empirical physical observations within spatial influence radius. |
-
----
-
-## 4. Empirical Model Validation (LOOCV)
-
-To ensure the heatmap is not merely a cosmetic graphic, AirGrid implements a built-in Leave-One-Out Cross-Validation (LOOCV) harness:
-
-1. For a dataset of $N \ge 3$ points on a floor, each point $k \in \{1 \dots N\}$ is iteratively held out.
-2. The IDW model is trained strictly on the remaining $N-1$ points.
-3. If point $k$ falls within the remaining spatial support radius ($\le 18$ m) and convex hull, an independent prediction $\hat{y}_k$ is generated.
-4. The error $e_k = \hat{y}_k - y_k$ and absolute error $|e_k|$ are evaluated.
-5. The overall empirical Mean Absolute Error (MAE) and Root Mean Square Error (RMSE) are reported:
-   $$\text{MAE} = \frac{1}{M} \sum_{k=1}^M |e_k| \quad (\text{in dBm})$$
-   $$\text{RMSE} = \sqrt{\frac{1}{M} \sum_{k=1}^M e_k^2} \quad (\text{in dBm})$$
-6. If points are isolated or edge-heavy ($>40\%$ masked during holdout), the system flags an actionable **Sparsity Warning** recommending supplementary survey points.
+For authentic physical acceptance, an authorized floor plan representing the actual building housing `MOJO-JAN-C2-F1` must be provided and calibrated.
 
 ---
 
-## 5. Verification Evidence & Quality Gates
+## 4. Live Measuring Host & RF Environment (Read-Only Status)
 
-### A. Backend Pytest Suite
-* **Command:** `apps/api/.venv/bin/python -m pytest`
-* **Result:** **212 passed in 154.25s (100% green, 0 failures, 0 regressions)**
-* **Baseline Comparison:** Baseline was 207 tests; 5 new comprehensive survey and collector integration tests added (`test_collect_live_measurement_success`, `test_collect_live_measurement_disconnected_rejection`, `test_reposition_measurement_with_audit_trail`, `test_heatmap_generation_audit_logging`, `test_leave_one_out_cross_validation`).
-
-### B. Frontend TypeScript & Production Build
-* **Command:** `npm --prefix apps/web run build`
-* **Result:** **Built in 3.46s (0 TypeScript errors, 0 warnings)**
-
-### C. Isolated E2E Playwright Browser Acceptance
-* **Command:** `NODE_PATH=/home/teju/.local/lib/node_modules/@playwright/cli/node_modules AIRGRID_BROWSER_URL=http://127.0.0.1:5199 node docs/verification/verify_heatmaps_e2e.cjs`
-* **Result:** **PASSED (0 console errors, 0 uncaught exceptions)**
-* **Desktop Verification (1440 × 900):**
-  - Header: Wi-Fi Survey Studio verified
-  - Canvas: Interactive floor plan raster and markers verified
-  - Signal Legend: Verified including unknown masked area (>18m / outside perimeter)
-  - LOOCV Validation: Executed successfully (MAE: ±2.15 dBm, 4/4 valid predictions, error distribution buckets verified)
-  - Live Wi-Fi Telemetry: Floor click opened panel displaying genuine interface (`wlp0s20f3`), SSID (`Jain_Student`), RSSI (`-58 dBm`), and PHY rates (`RX 360 Mbps / TX 300 Mbps`)
-  - Point Inspector: Point selection opened telemetry card with `Verified Telemetry` provenance badge and PHY link rates (`RX 433.3 / TX 390 Mbps`)
-  - Reposition Controls: Verified coordinate adjustments and audit reason fields
-  - Screenshot Artifact: `docs/verification/screenshots/heatmaps_desktop_1440x900.png`
-* **Mobile Verification (390 × 844):**
-  - Responsive layout verified without clipping or horizontal overflow
-  - Screenshot Artifact: `docs/verification/screenshots/heatmaps_mobile_390x844.png`
-
-### D. Alembic Schema & Database Integrity
-* **Command:** `cd apps/api && .venv/bin/alembic check`
-* **Result:** `No new upgrade operations detected.` (Python ORM models and PostgreSQL schemas 100% aligned).
-* **Operational Database (`airgrid_db`):** Verified completely untouched and intact:
-  - Survey Sessions: 2
-  - Survey Measurements: 13
-  - Speed Tests: 41
-  - Snapshots: 14
-
----
-
-## 6. Real-World Operator Pre-Flight Report & Site Survey Protocol
-
-For genuine field site surveys, the physical operator must adhere to the following protocol:
-
-### Live Measuring Environment Pre-Flight Status:
-* **Operating System:** Linux (Arch Linux x86_64, Kernel 6.16)
-* **Wireless NIC Interface:** `wlp0s20f3`
-* **Hardware Device:** Intel Wi-Fi 6 AX201 (802.11ax)
-* **Host Label:** `ostra`
-* **Currently Associated SSID:** `MOJO-JAN-C2-F1`
+* **Host Machine:** `ostra` (Linux 6.16 x86_64)
+* **Wireless NIC:** `wlp0s20f3` (Intel Wi-Fi 6 AX201, 802.11ax)
+* **Connected SSID:** `MOJO-JAN-C2-F1`
 * **Access Point BSSID:** `50:91:E3:75:8F:C3`
-* **RF Channel & Band:** Channel 40 (5200 MHz, 160 MHz channel width, 5 GHz band)
-* **Measured Local RSSI:** `-53.0 dBm` (Strong)
-* **Current Negotiated PHY Link Rates:** `1297.1 Mbps RX / 1152.8 Mbps TX`
-* **Local Gateway IP:** `172.16.0.1`
+* **Frequency & Channel:** 5200 MHz / Channel 40 (5 GHz Band, 160 MHz channel width)
+* **Observed RSSI:** `-59.0 dBm` (Good / Commercial Quality)
+* **Current Negotiated PHY Link Rates:** `576.4 Mbps RX / 244.9 Mbps TX`
+* **Default Gateway:** `172.16.0.1`
+* **IP Address:** `172.16.0.110`
 
-### Operator Protocol:
-1. **Authorized Location Selection:** Operator selects the authorized campus, building, and floor in AirGrid.
-2. **Floor Plan Calibration:** Ensure the floor plan scale is calibrated (pixels per meter). Uncalibrated floor plans are restricted from verified live captures.
-3. **Physical Stationing:** The operator physically walks to a location, stands stationary, and identifies their position on the floor plan canvas.
-4. **Coordinate Confirmation:** Click on the canvas at the exact physical location. The `SignalMeasurementPanel` opens and queries the local Wi-Fi interface in real time.
-5. **Observation Review:** Confirm that the displayed SSID, BSSID, RSSI, and PHY rates match the current station environment.
-6. **Capture:** Click **"Capture Live Observation"**. AirGrid records the measurement with provenance `field_instrument_verified` and an audit log entry.
-7. **Coverage Grid:** Once 3 or more stations are measured, click **"Generate Heatmap"** and run **"Run LOOCV"** to verify empirical accuracy.
-8. **Repositioning:** If an observation was placed on the wrong tile or column, select the marker, click **"Reposition"**, enter corrected coordinates and an audit explanation, and save.
+*Inspection performed strictly via read-only `iw dev wlp0s20f3 link` and `nmcli`. Zero neighboring networks scanned; zero packets captured.*
 
-### Safety & Authorization Boundary:
-* AirGrid executes zero packet capturing and zero scanning of unassociated networks.
-* AirGrid never alters local Wi-Fi settings or router configurations.
-* Operational site measurements are only recorded with direct operator action.
+---
+
+## 5. Heatmap Reliability & Mathematical Boundaries
+
+### Spatial Inverse-Distance Weighting (IDW) Formulation:
+Expected signal $\hat{S}$ at grid cell $(x_c, y_c)$:
+
+$$\hat{S}(x_c, y_c) = \frac{\sum_{i=1}^N \frac{\text{RSSI}_i}{(d_i + 0.5)^2}}{\sum_{i=1}^N \frac{1}{(d_i + 0.5)^2}}$$
+
+* **Distance Decay:** Inverse-square decay ($p=2.0$).
+* **Smoothing Factor:** $\epsilon = 0.5$ m (eliminates singular infinity at sample locations).
+* **Radial Support Cutoff:** 18.0 meters. Any grid cell whose distance to the nearest physical observation exceeds 18 meters is marked `null` (masked).
+* **Convex Hull Enclosure:** Andrew's Monotone Chain 2D algorithm constructs the minimal convex polygon encompassing all survey points, expanded by a $4.0$ m buffer. Cells outside this perimeter are masked.
+* **Transparent Rendering:** Masked cells are rendered with alpha channel $=0$ (transparent canvas pixels), clearly communicating "Unknown / Unmeasured Area" to the operator rather than displaying misleading weak coverage.
+
+### Sample Density & Reliability Thresholds:
+* **Fewer than 3 points:** Heatmap generation is blocked (`HTTP 422: At least 3 measurements required`).
+* **3 to 5 points:** Highly localized coverage; outer perimeter is predominantly masked. Cross-validation will flag high sparsity warnings because held-out points easily lose surrounding spatial support.
+* **Recommended Genuine Sampling:** **8 to 15 distributed measurement points** across rooms and corridors. This produces a balanced convex hull with sufficient inner points to enable statistically meaningful Leave-One-Out Cross-Validation.
+
+---
+
+## 6. Real-World Operator Site Survey Protocol
+
+When ready to conduct a physical survey, the operator follows this 10-step procedure:
+
+1. **Select Authorized Floor:** Log in to AirGrid and navigate to `/heatmaps` (Wi-Fi Survey Studio). Select the authorized campus, building, and floor.
+2. **Create New Survey Session:** Click **"New Survey Session"**, specify a descriptive session name (e.g., `Site Survey - Wing B Floor 2`), and initialize.
+3. **Confirm Floor-Plan Dimensions:** Verify that the floor plan image matches the physical site and has calibrated scaling (pixels per meter). If not calibrated, use Campus Manager to set a known distance (e.g., measuring 15.0 meters between two architectural pillars).
+4. **Mark Physical Measurement Position:** Physically walk to the first station (e.g., Northwest Corner Desk) carrying the measuring laptop (`ostra`). Click on the floor plan canvas at that exact position.
+5. **Capture Current Connected-Wi-Fi Reading:** The **Signal Measurement Panel** opens, displaying real-time link parameters (`wlp0s20f3`, `MOJO-JAN-C2-F1`, `-59 dBm`, PHY rates). Review and confirm accuracy.
+6. **Save Reading with Real Provenance:** Click **"Capture Live Observation"**. AirGrid persists the measurement linked to a `NetworkTelemetrySnapshot` with provenance `field_instrument_verified` and logs an audit entry.
+7. **Repeat at Distinct Authorized Positions:** Walk to 8–15 distributed locations across the floor (corridor center, conference rooms, perimeter offices), stationing the laptop at each spot before clicking.
+8. **Generate Heatmap:** Once sufficient points are collected, click **"Generate Heatmap"** to compute the 2D IDW signal distribution.
+9. **Run Leave-One-Out Validation:** In the Survey Analysis Panel, click **"Run LOOCV"** to calculate empirical holdout prediction accuracy.
+10. **Inspect Error & Unsupported Regions:** Examine the reported MAE (dBm), RMSE, and error distribution bins. Verify that unsupported regions outside the walked path remain masked as unmeasured.
 
 ---
 
@@ -199,5 +178,9 @@ For genuine field site surveys, the physical operator must adhere to the followi
 | **Frontend Production Build** | TypeScript verification and Vite bundle | **PASS** | Built in 3.46s with 0 errors |
 | **Browser Acceptance** | Desktop (1440x900) & Mobile (390x844) verification | **PASS** | Tested with Playwright, 0 console errors |
 | **Data Preservation** | Operational `airgrid_db` completely untouched | **PASS** | 2 sessions, 13 points, 41 speed tests, 14 snapshots verified |
+| **Genuine Spatial Field Validation** | Real physical survey on authorized building floor plan | **PENDING** | **Awaiting operator upload of real floor plan & physical walk-through** |
 
-**Milestone 3B Verdict:** **ACCEPTED WITHOUT DEFECTS**
+---
+
+### Final Milestone 3B Engineering Verdict:
+**SOFTWARE IMPLEMENTATION & AUTOMATION VERIFIED; GENUINE PHYSICAL FIELD ACCEPTANCE PENDING OPERATOR WALK-THROUGH.**

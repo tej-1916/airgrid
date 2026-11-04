@@ -1,14 +1,15 @@
 # Resume AirGrid — Operational State & Handoff Guide
 
-**Last Updated:** 2026-11-04  
+**Last Updated:** 2026-11-05  
 **Current Branch:** `feat/airgrid-real-network-intelligence`  
+**Checkpoint Commit:** `2e9b62f`  
 **Test Suite State:** **212 passed, 0 failures, 0 warnings** (100% clean)  
 **Database Migration Head:** `0012_campus_access_control` (clean on both `airgrid_test_db` and `airgrid_db`)  
-**Completed Milestones:**
-- Milestone 1: Real Network Intelligence (Verified)
-- Milestone 2: Real AI Intelligence (Verified)
-- Milestone 3A: Real Speed Testing (Verified)
-- Milestone 3B: Real Wi-Fi Heatmaps (Verified)
+**Milestone Status:**
+- Milestone 1: Real Network Intelligence (Verified & Completed)
+- Milestone 2: Real AI Intelligence (Verified & Completed)
+- Milestone 3A: Real Speed Testing (Verified & Completed)
+- Milestone 3B: Real Wi-Fi Heatmaps (Software & Automated Verification COMPLETED; Physical Field Validation PENDING OPERATOR FIELD SURVEY)
 
 ---
 
@@ -83,12 +84,14 @@ npm run dev -- --host 127.0.0.1 --port 5173
 ## 4. Real Site Survey Execution (For the Operator)
 
 ### A. Live Host Wireless Environment
-* **Wireless NIC Interface:** `wlp0s20f3`
+* **Host Machine:** `ostra` (Linux 6.16 x86_64)
+* **Wireless NIC Interface:** `wlp0s20f3` (Intel Wi-Fi 6 AX201, 802.11ax)
 * **Current Associated SSID:** `MOJO-JAN-C2-F1`
 * **Access Point BSSID:** `50:91:E3:75:8F:C3`
 * **RF Channel & Band:** Channel 40 (5200 MHz, 160 MHz width, 5 GHz band)
-* **Local Measured RSSI:** `-53.0 dBm` (Strong)
-* **Negotiated PHY Link Rates:** `1297.1 Mbps RX / 1152.8 Mbps TX`
+* **Local Measured RSSI:** `-59.0 dBm` (Good / Commercial Quality)
+* **Negotiated PHY Link Rates:** `576.4 Mbps RX / 244.9 Mbps TX`
+* **Gateway & IP:** `172.16.0.1` / `172.16.0.110`
 
 ### B. Performing an Authorized Wi-Fi Survey
 1. Navigate to `/heatmaps` (Wi-Fi Survey Studio).
@@ -98,6 +101,6 @@ npm run dev -- --host 127.0.0.1 --port 5173
 5. Click on the floor plan canvas at that exact physical position.
 6. Review the live telemetry displayed in the **Signal Measurement Panel** (SSID, BSSID, RSSI, and negotiated PHY rates).
 7. Click **Capture Live Observation**. The point is persisted with provenance `field_instrument_verified`.
-8. Repeat across 3 or more stations on the floor.
-9. Click **Generate Heatmap** to compute the IDW coverage grid.
-10. Click **Run LOOCV** in the Survey Analysis Panel to verify empirical model accuracy (MAE in dBm).
+8. Repeat across 8 to 15 distributed stations on the floor (corridors, room centers, and corners).
+9. Click **Generate Heatmap** to compute the IDW coverage grid with 18m radial mask and convex-hull enclosure.
+10. Click **Run LOOCV** in the Survey Analysis Panel to verify empirical model accuracy (reporting MAE in dBm, RMSE, and sparsity warnings). Note that fewer than 5 points will trigger high sparsity warnings due to lack of surrounding spatial support during holdout.
