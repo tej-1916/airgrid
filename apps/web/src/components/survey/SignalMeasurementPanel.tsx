@@ -1,13 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { Radio, AlertCircle, Save, X, Wifi, ShieldAlert, Cpu } from 'lucide-react';
-import { MeasurementSource, SurveyMeasurementCreatePayload } from '../../types/survey';
+import { Radio, AlertCircle, Save, X, Wifi, ShieldAlert, Cpu, Activity, RefreshCw } from 'lucide-react';
+import { MeasurementSource, SurveyMeasurementCreatePayload, LiveMeasurementCreatePayload } from '../../types/survey';
 import { getSignalColor } from './SignalLegend';
-import { TelemetrySnapshot } from '../../types/diagnostics';
+import { TelemetrySnapshot, LiveConnectionStatus } from '../../types/diagnostics';
+import { diagnosticsService } from '../../services/diagnosticsService';
 
 interface SignalMeasurementPanelProps {
   floorId: string;
   clickCoords: { x: number; y: number } | null;
   onSave: (payload: SurveyMeasurementCreatePayload) => Promise<void>;
+  onCollectLive?: (payload: LiveMeasurementCreatePayload) => Promise<void>;
   onCancel: () => void;
   scaleRatio?: number;
   isCalibrated?: boolean;
@@ -19,6 +21,7 @@ export const SignalMeasurementPanel: React.FC<SignalMeasurementPanelProps> = ({
   floorId,
   clickCoords,
   onSave,
+  onCollectLive,
   onCancel,
   scaleRatio = 20.0,
   isCalibrated = false,
@@ -36,6 +39,28 @@ export const SignalMeasurementPanel: React.FC<SignalMeasurementPanelProps> = ({
   const [saving, setSaving] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
+  // Live connection probe state
+  const [liveConn, setLiveConn] = useState<LiveConnectionStatus | null>(null);
+  const [probingLive, setProbingLive] = useState<boolean>(false);
+
+  const fetchLiveStatus = async () => {
+    try {
+      setProbingLive(true);
+      const status = await diagnosticsService.getLiveConnection();
+      setLiveConn(status);
+    } catch {
+      setLiveConn(null);
+    } finally {
+      setProbingLive(false);
+    }
+  };
+
+  useEffect(() => {
+    if (clickCoords) {
+      fetchLiveStatus();
+    }
+  }, [clickCoords]);
+
   // Sync frequency to standard channel defaults
   useEffect(() => {
     if (frequencyBand === '2.4') {
@@ -52,6 +77,23 @@ export const SignalMeasurementPanel: React.FC<SignalMeasurementPanelProps> = ({
   const x_m = isCalibrated ? (clickCoords.x / scaleRatio).toFixed(1) : null;
   const y_m = isCalibrated ? (clickCoords.y / scaleRatio).toFixed(1) : null;
   const colorInfo = getSignalColor(rssiDbm);
+
+  const handleCaptureLive = async () => {
+    if (!onCollectLive) return;
+    try {
+      setSaving(true);
+      setErrorMsg(null);
+      await onCollectLive({
+        position_x: clickCoords.x,
+        position_y: clickCoords.y,
+        notes: notes.trim() || undefined,
+      });
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to capture live Wi-Fi telemetry.');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -123,6 +165,93 @@ export const SignalMeasurementPanel: React.FC<SignalMeasurementPanelProps> = ({
           <span>{errorMsg}</span>
         </div>
       )}
+
+      {/* Live Wi-Fi Telemetry Capture Card (Milestone 3B Genuine RF Workflow) */}
+      <div className="rounded-xl border border-[#BE6B37]/30 bg-gradient-to-br from-white to-[#F5F5F3] p-3.5 space-y-2.5 shadow-xs">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-[#0B0B0D]">
+            <Activity className="w-3.5 h-3.5 text-[#BE6B37]" />
+            <span>Live Wi-Fi Telemetry Link</span>
+          </div>
+          <button
+            type="button"
+            onClick={fetchLiveStatus}
+            disabled={probingLive}
+            className="flex items-center gap-1 text-[10px] text-[#737373] hover:text-[#0B0B0D] disabled:opacity-50"
+            title="Refresh link telemetry"
+          >
+            <RefreshCw className={`w-3 h-3 ${probingLive ? 'animate-spin' : ''}`} />
+            <span>Refresh</span>
+          </button>
+        </div>
+
+        {liveConn?.is_connected ? (
+          <div className="space-y-2">
+            <div className="p-2.5 rounded-lg bg-white border border-[#D9DBDE] space-y-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-[#737373] text-[11px]">Connected SSID:</span>
+                <span className="font-mono font-bold text-[#0B0B0D]">{liveConn.ssid}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[#737373] text-[11px]">Measuring Interface:</span>
+                <span className="font-mono text-[#0B0B0D]">{liveConn.interface_name}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[#737373] text-[11px]">Signal Strength (RSSI):</span>
+                <div className="flex items-center gap-1.5 font-mono font-bold">
+                  <span
+                    style={{ backgroundColor: getSignalColor(liveConn.rssi_dbm ?? -100).hex }}
+                    className="w-2 h-2 rounded-full"
+                  />
+                  <span>{liveConn.rssi_dbm} dBm</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[#737373] text-[11px]">Frequency & Channel:</span>
+                <span className="font-mono text-[#0B0B0D]">
+                  {liveConn.frequency_mhz} MHz (Ch {liveConn.channel}) • {liveConn.band}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-[#737373] text-[11px]">Negotiated PHY Rate:</span>
+                <span className="font-mono text-[#0B0B0D]">
+                  RX {liveConn.rx_bitrate_mbps ?? '—'} Mbps / TX {liveConn.tx_bitrate_mbps ?? '—'} Mbps
+                </span>
+              </div>
+              <div className="flex items-center justify-between pt-1 border-t border-[#D9DBDE]/50 text-[10px] text-[#737373]">
+                <span>Measuring Host:</span>
+                <span className="font-mono">{liveConn.hostname}</span>
+              </div>
+            </div>
+
+            {isCalibrated ? (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={handleCaptureLive}
+                className="w-full py-2 px-3 rounded-lg bg-[#BE6B37] hover:bg-[#9A5226] disabled:opacity-50 text-white text-xs font-semibold flex items-center justify-center gap-2 transition-colors shadow-xs"
+              >
+                <Wifi className="w-4 h-4" />
+                <span>
+                  {saving ? 'Capturing Observation...' : `Capture Live Observation at (${clickCoords.x}, ${clickCoords.y}) px`}
+                </span>
+              </button>
+            ) : (
+              <p className="text-[11px] text-amber-800 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                Calibrate this floor plan before recording verified spatial observations.
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[11px] space-y-1">
+            <p className="font-semibold">Wi-Fi Interface Disconnected / Unavailable</p>
+            <p className="text-[#737373]">
+              Connect measuring device to an authorized Wi-Fi network, or enter an operator-reported value below.
+            </p>
+          </div>
+        )}
+        <p className="text-center text-[10px] text-[#737373]">— or enter an operator-reported observation below —</p>
+      </div>
 
       {onPlaceSnapshot && placeable.length > 0 && (
         <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 space-y-2">

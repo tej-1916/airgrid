@@ -26,11 +26,16 @@ from airgrid.schemas.survey import (
     SurveySessionUpdate,
     SurveyMeasurementCreate,
     SurveyMeasurementResponse,
+    LiveMeasurementCreate,
+    MeasurementRepositionRequest,
+    PointValidationDetail,
+    SurveyValidationResponse,
     SurveySessionResponse,
     SurveySummaryStats,
     HeatmapGridResponse,
     SurveyComparisonResponse,
 )
+from airgrid.services.telemetry_collector import telemetry_collector
 
 
 
@@ -95,7 +100,7 @@ class SurveyService:
         stmt = (
             select(SurveySession)
             .options(
-                selectinload(SurveySession.measurements),
+                selectinload(SurveySession.measurements).selectinload(SurveyMeasurement.source_telemetry_snapshot),
                 selectinload(SurveySession.technician),
                 selectinload(SurveySession.floor),
             )
@@ -136,7 +141,7 @@ class SurveyService:
         stmt = (
             select(SurveySession)
             .options(
-                selectinload(SurveySession.measurements),
+                selectinload(SurveySession.measurements).selectinload(SurveyMeasurement.source_telemetry_snapshot),
                 selectinload(SurveySession.technician),
             )
             .where(where_clause)
@@ -292,7 +297,13 @@ class SurveyService:
         db.add(measurement)
         await db.commit()
         await db.refresh(measurement)
-        return measurement
+        stmt_m = (
+            select(SurveyMeasurement)
+            .options(selectinload(SurveyMeasurement.source_telemetry_snapshot))
+            .where(SurveyMeasurement.id == measurement.id)
+        )
+        res_m = await db.execute(stmt_m)
+        return res_m.scalar_one()
 
     @staticmethod
     async def placeable_snapshots(db: AsyncSession, session_id: uuid.UUID) -> List[NetworkTelemetrySnapshot]:
@@ -370,7 +381,13 @@ class SurveyService:
             await db.rollback()
             raise HTTPException(status_code=409, detail="This observation is already placed on a survey.")
         await db.refresh(measurement)
-        return measurement
+        stmt_m = (
+            select(SurveyMeasurement)
+            .options(selectinload(SurveyMeasurement.source_telemetry_snapshot))
+            .where(SurveyMeasurement.id == measurement.id)
+        )
+        res_m = await db.execute(stmt_m)
+        return res_m.scalar_one()
 
     @staticmethod
     async def delete_measurement(
@@ -397,6 +414,246 @@ class SurveyService:
         return True
 
     @staticmethod
+    async def collect_live_measurement(
+        db: AsyncSession,
+        session_id: uuid.UUID,
+        payload: LiveMeasurementCreate,
+        technician_id: uuid.UUID,
+    ) -> SurveyMeasurement:
+        """
+        Safely collects genuine, real-time wireless telemetry from the measuring host's
+        connected Wi-Fi interface and records it at the operator-approved floor coordinates.
+        Zero packet capturing, zero credential access, zero network modification.
+        Requires active connected Wi-Fi link and calibrated floor plan.
+        """
+        session = await SurveyService.get_survey_session(db, session_id)
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Survey session '{session_id}' not found.",
+            )
+        if session.status == "archived":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot add measurements to an archived survey session.",
+            )
+
+        # 1. Verify calibrated floor plan and bounds
+        stmt_plan = select(FloorPlanAsset).where(FloorPlanAsset.floor_id == session.floor_id)
+        res_plan = await db.execute(stmt_plan)
+        plan = res_plan.scalar_one_or_none()
+
+        if not plan or not plan.is_calibrated or not plan.scale_pixels_per_meter or plan.scale_pixels_per_meter <= 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="A calibrated floor plan is required before recording genuine spatial measurements.",
+            )
+
+        if payload.position_x > plan.pixel_width or payload.position_y > plan.pixel_height:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=f"Position ({payload.position_x:.1f}, {payload.position_y:.1f}) exceeds floor plan bounds ({plan.pixel_width}x{plan.pixel_height} px).",
+            )
+
+        # 2. Check for duplicate position in this survey session
+        occupied = await db.execute(
+            select(SurveyMeasurement.id).where(
+                SurveyMeasurement.survey_session_id == session_id,
+                func.abs(SurveyMeasurement.position_x - payload.position_x) < 0.5,
+                func.abs(SurveyMeasurement.position_y - payload.position_y) < 0.5,
+            )
+        )
+        if occupied.first():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A survey observation already exists at this position.",
+            )
+
+        # 3. Read live Wi-Fi link parameters from host
+        live_status = telemetry_collector.get_live_connection_status()
+        if not live_status.get("is_connected") or not live_status.get("ssid") or live_status.get("rssi_dbm") is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail="No active connected Wi-Fi interface detected on host. Connect to an authorized Wi-Fi network before capturing live spatial measurements.",
+            )
+
+        now = datetime.now(timezone.utc)
+
+        # 4. Create persistent NetworkTelemetrySnapshot
+        snapshot = NetworkTelemetrySnapshot(
+            floor_id=session.floor_id,
+            building_id=session.building_id,
+            campus_id=session.campus_id,
+            user_id=technician_id,
+            interface_name=live_status.get("interface_name") or "unknown",
+            mac_address=live_status.get("mac_address"),
+            ssid=live_status.get("ssid"),
+            bssid=live_status.get("bssid"),
+            rssi_dbm=live_status.get("rssi_dbm"),
+            signal_quality_pct=live_status.get("signal_quality_pct"),
+            frequency_mhz=live_status.get("frequency_mhz"),
+            channel=live_status.get("channel"),
+            channel_width_mhz=live_status.get("channel_width_mhz"),
+            band=live_status.get("band"),
+            rx_bitrate_mbps=live_status.get("rx_bitrate_mbps"),
+            tx_bitrate_mbps=live_status.get("tx_bitrate_mbps"),
+            security_protocol=live_status.get("security_protocol"),
+            vantage_point="backend_server",
+            data_provenance="instrumented_linux_telemetry",
+            collection_status="collected",
+            raw_details={
+                "collected_via": "survey_live_capture",
+                "hostname": live_status.get("hostname"),
+                "measuring_device": live_status.get("measuring_device"),
+            },
+            collected_at=now,
+        )
+        db.add(snapshot)
+        await db.flush()
+
+        # 5. Create SurveyMeasurement
+        measurement = SurveyMeasurement(
+            survey_session_id=session_id,
+            floor_id=session.floor_id,
+            position_x=payload.position_x,
+            position_y=payload.position_y,
+            normalized_x=payload.position_x / plan.pixel_width,
+            normalized_y=payload.position_y / plan.pixel_height,
+            rssi_dbm=live_status.get("rssi_dbm"),
+            network_label=live_status.get("ssid"),
+            ap_reference=live_status.get("bssid"),
+            frequency_mhz=live_status.get("frequency_mhz"),
+            channel=live_status.get("channel"),
+            notes=payload.notes,
+            measurement_source="live_system_probe",
+            data_provenance="field_instrument_verified",
+            source_telemetry_snapshot_id=snapshot.id,
+            observed_at=now,
+        )
+        db.add(measurement)
+
+        db.add(
+            AuditLog(
+                actor_id=technician_id,
+                action="survey.live_measurement_recorded",
+                resource_type="survey_measurements",
+                resource_id=str(session_id),
+                payload={
+                    "measurement_id": str(measurement.id),
+                    "telemetry_snapshot_id": str(snapshot.id),
+                    "ssid": live_status.get("ssid"),
+                    "bssid": live_status.get("bssid"),
+                    "rssi_dbm": live_status.get("rssi_dbm"),
+                    "position_x": payload.position_x,
+                    "position_y": payload.position_y,
+                    "interface_name": live_status.get("interface_name"),
+                    "rx_bitrate_mbps": live_status.get("rx_bitrate_mbps"),
+                    "tx_bitrate_mbps": live_status.get("tx_bitrate_mbps"),
+                },
+            )
+        )
+        await db.commit()
+        await db.refresh(measurement)
+
+        stmt_m = (
+            select(SurveyMeasurement)
+            .options(selectinload(SurveyMeasurement.source_telemetry_snapshot))
+            .where(SurveyMeasurement.id == measurement.id)
+        )
+        m_loaded = (await db.execute(stmt_m)).scalar_one_or_none()
+        return m_loaded or measurement
+
+    @staticmethod
+    async def reposition_measurement(
+        db: AsyncSession,
+        session_id: uuid.UUID,
+        measurement_id: uuid.UUID,
+        payload: MeasurementRepositionRequest,
+        technician_id: uuid.UUID,
+    ) -> SurveyMeasurement:
+        """
+        Adjusts the position coordinates of a mistakenly placed survey point with audit tracking.
+        """
+        session = await SurveyService.get_survey_session(db, session_id)
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Survey session '{session_id}' not found.",
+            )
+        if session.status == "archived":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Cannot modify measurements on an archived survey session.",
+            )
+
+        stmt = (
+            select(SurveyMeasurement)
+            .options(selectinload(SurveyMeasurement.source_telemetry_snapshot))
+            .where(
+                and_(
+                    SurveyMeasurement.id == measurement_id,
+                    SurveyMeasurement.survey_session_id == session_id,
+                )
+            )
+        )
+        res = await db.execute(stmt)
+        measurement = res.scalar_one_or_none()
+        if not measurement:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Measurement '{measurement_id}' not found in survey session '{session_id}'.",
+            )
+
+        # Verify new coordinates within floor plan bounds
+        stmt_plan = select(FloorPlanAsset).where(FloorPlanAsset.floor_id == session.floor_id)
+        res_plan = await db.execute(stmt_plan)
+        plan = res_plan.scalar_one_or_none()
+
+        if plan and plan.pixel_width > 0 and plan.pixel_height > 0:
+            if payload.position_x > plan.pixel_width or payload.position_y > plan.pixel_height:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                    detail=f"New position ({payload.position_x:.1f}, {payload.position_y:.1f}) exceeds floor plan bounds ({plan.pixel_width}x{plan.pixel_height} px).",
+                )
+            new_norm_x = payload.position_x / plan.pixel_width
+            new_norm_y = payload.position_y / plan.pixel_height
+        else:
+            new_norm_x = measurement.normalized_x
+            new_norm_y = measurement.normalized_y
+
+        old_x = measurement.position_x
+        old_y = measurement.position_y
+
+        measurement.position_x = payload.position_x
+        measurement.position_y = payload.position_y
+        measurement.normalized_x = new_norm_x
+        measurement.normalized_y = new_norm_y
+
+        db.add(
+            AuditLog(
+                actor_id=technician_id,
+                action="survey.measurement_repositioned",
+                resource_type="survey_measurements",
+                resource_id=str(measurement.id),
+                payload={
+                    "survey_session_id": str(session_id),
+                    "old_position": {"x": old_x, "y": old_y},
+                    "new_position": {"x": payload.position_x, "y": payload.position_y},
+                    "reason": payload.reason or "Operator corrected mistaken placement",
+                },
+            )
+        )
+        await db.commit()
+        await db.refresh(measurement)
+        stmt_m = (
+            select(SurveyMeasurement)
+            .options(selectinload(SurveyMeasurement.source_telemetry_snapshot))
+            .where(SurveyMeasurement.id == measurement.id)
+        )
+        res_m = await db.execute(stmt_m)
+        return res_m.scalar_one()
+
+    @staticmethod
     async def list_measurements(
         db: AsyncSession,
         session_id: uuid.UUID,
@@ -404,6 +661,7 @@ class SurveyService:
         """Lists all measurements recorded for a survey session."""
         stmt = (
             select(SurveyMeasurement)
+            .options(selectinload(SurveyMeasurement.source_telemetry_snapshot))
             .where(SurveyMeasurement.survey_session_id == session_id)
             .order_by(SurveyMeasurement.observed_at.asc())
         )
@@ -669,6 +927,212 @@ class SurveyService:
             network_label=effective_network,
             ap_reference=effective_ap,
             convex_hull_support=True,
+        )
+
+    @staticmethod
+    async def validate_survey_heatmap(
+        db: AsyncSession,
+        session_id: uuid.UUID,
+        network_label: Optional[str] = None,
+        power: float = 2.0,
+        hull_buffer_meters: float = 4.0,
+    ) -> SurveyValidationResponse:
+        """
+        Performs Leave-One-Out Cross-Validation (LOOCV) to empirically evaluate
+        IDW spatial interpolation predictions against held-out genuine measurements.
+        Reports point-level errors, aggregate MAE, RMSE, error distribution, and sparsity warnings.
+        """
+        session = await SurveyService.get_survey_session(db, session_id)
+        if not session:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Survey session '{session_id}' not found.",
+            )
+
+        measurements = list(session.measurements or [])
+
+        # Filter by network_label if requested
+        if network_label is not None and network_label.strip():
+            target_net = network_label.strip()
+            measurements = [m for m in measurements if (m.network_label or "").strip() == target_net]
+        else:
+            distinct_networks = set(
+                (m.network_label or "").strip()
+                for m in measurements
+                if m.network_label and m.network_label.strip()
+            )
+            if len(distinct_networks) > 1:
+                target_net = sorted(distinct_networks)[0]
+                measurements = [m for m in measurements if (m.network_label or "").strip() == target_net]
+
+        stmt_plan = select(FloorPlanAsset).where(FloorPlanAsset.floor_id == session.floor_id)
+        res_plan = await db.execute(stmt_plan)
+        plan = res_plan.scalar_one_or_none()
+        scale = plan.scale_pixels_per_meter if plan and plan.is_calibrated and plan.scale_pixels_per_meter > 0 else 20.0
+
+        n = len(measurements)
+        if n < 3:
+            return SurveyValidationResponse(
+                survey_session_id=session.id,
+                floor_id=session.floor_id,
+                method="leave_one_out_cross_validation",
+                evaluated_samples_count=n,
+                valid_predictions_count=0,
+                masked_predictions_count=0,
+                mae_db=None,
+                rmse_db=None,
+                min_error_db=None,
+                max_error_db=None,
+                error_distribution={},
+                is_sparse_warning=True,
+                sparse_reasons=[
+                    f"Insufficient observations ({n} available). At least 4 spatially non-collinear observations required for cross-validation."
+                ],
+                points=[],
+            )
+
+        point_results: List[PointValidationDetail] = []
+        sparse_reasons: List[str] = []
+
+        if n < 5:
+            sparse_reasons.append(f"Sparse sample size ({n} observations); LOOCV uncertainty may be elevated.")
+
+        for i, target_m in enumerate(measurements):
+            # Training set excludes target_m
+            train_samples = [
+                (m.position_x, m.position_y, m.rssi_dbm)
+                for j, m in enumerate(measurements)
+                if j != i
+            ]
+            train_coords = [(x, y) for x, y, _ in train_samples]
+
+            # Nearest neighbor distance in meters
+            dists_m = [
+                math.hypot(target_m.position_x - tx, target_m.position_y - ty) / scale
+                for tx, ty in train_coords
+            ]
+            min_dist_m = min(dists_m) if dists_m else None
+
+            # If remaining points are collinear or < 3
+            if len(train_samples) < 3 or SurveyService._is_collinear(train_coords):
+                point_results.append(
+                    PointValidationDetail(
+                        point_id=target_m.id,
+                        position_x=target_m.position_x,
+                        position_y=target_m.position_y,
+                        actual_rssi_dbm=target_m.rssi_dbm,
+                        predicted_rssi_dbm=None,
+                        absolute_error_db=None,
+                        error_db=None,
+                        is_masked=True,
+                        distance_to_nearest_sample_m=round(min_dist_m, 2) if min_dist_m is not None else None,
+                        network_label=target_m.network_label,
+                    )
+                )
+                continue
+
+            train_hull = SurveyService._compute_convex_hull(train_coords)
+            prediction = SurveyService._predict_idw(
+                target_m.position_x,
+                target_m.position_y,
+                train_samples,
+                scale,
+                train_hull,
+                power=power,
+                hull_buffer_meters=hull_buffer_meters,
+            )
+
+            if prediction is None:
+                point_results.append(
+                    PointValidationDetail(
+                        point_id=target_m.id,
+                        position_x=target_m.position_x,
+                        position_y=target_m.position_y,
+                        actual_rssi_dbm=target_m.rssi_dbm,
+                        predicted_rssi_dbm=None,
+                        absolute_error_db=None,
+                        error_db=None,
+                        is_masked=True,
+                        distance_to_nearest_sample_m=round(min_dist_m, 2) if min_dist_m is not None else None,
+                        network_label=target_m.network_label,
+                    )
+                )
+            else:
+                pred_val = round(prediction, 2)
+                err = round(pred_val - target_m.rssi_dbm, 2)
+                abs_err = round(abs(err), 2)
+                point_results.append(
+                    PointValidationDetail(
+                        point_id=target_m.id,
+                        position_x=target_m.position_x,
+                        position_y=target_m.position_y,
+                        actual_rssi_dbm=target_m.rssi_dbm,
+                        predicted_rssi_dbm=pred_val,
+                        absolute_error_db=abs_err,
+                        error_db=err,
+                        is_masked=False,
+                        distance_to_nearest_sample_m=round(min_dist_m, 2) if min_dist_m is not None else None,
+                        network_label=target_m.network_label,
+                    )
+                )
+
+        valid_points = [p for p in point_results if not p.is_masked and p.absolute_error_db is not None]
+        masked_count = len(point_results) - len(valid_points)
+
+        if not valid_points:
+            sparse_reasons.append("All points were outside remaining spatial support hulls or maximum 18m radius during holdout.")
+            return SurveyValidationResponse(
+                survey_session_id=session.id,
+                floor_id=session.floor_id,
+                method="leave_one_out_cross_validation",
+                evaluated_samples_count=n,
+                valid_predictions_count=0,
+                masked_predictions_count=masked_count,
+                mae_db=None,
+                rmse_db=None,
+                min_error_db=None,
+                max_error_db=None,
+                error_distribution={},
+                is_sparse_warning=True,
+                sparse_reasons=sparse_reasons,
+                points=point_results,
+            )
+
+        abs_errors = [p.absolute_error_db for p in valid_points if p.absolute_error_db is not None]
+        signed_errors = [p.error_db for p in valid_points if p.error_db is not None]
+
+        mae_db = round(sum(abs_errors) / len(abs_errors), 2)
+        rmse_db = round(math.sqrt(sum(e**2 for e in signed_errors) / len(signed_errors)), 2)
+        min_err = round(min(signed_errors), 2)
+        max_err = round(max(signed_errors), 2)
+
+        distrib = {
+            "under_2db": sum(1 for e in abs_errors if e <= 2.0),
+            "2_to_5db": sum(1 for e in abs_errors if 2.0 < e <= 5.0),
+            "5_to_10db": sum(1 for e in abs_errors if 5.0 < e <= 10.0),
+            "over_10db": sum(1 for e in abs_errors if e > 10.0),
+        }
+
+        if masked_count > 0.4 * n:
+            sparse_reasons.append(f"{masked_count} of {n} points ({round(masked_count/n*100)}%) masked during holdout; edge points lack surrounding spatial support.")
+
+        is_sparse = bool(sparse_reasons)
+
+        return SurveyValidationResponse(
+            survey_session_id=session.id,
+            floor_id=session.floor_id,
+            method="leave_one_out_cross_validation",
+            evaluated_samples_count=n,
+            valid_predictions_count=len(valid_points),
+            masked_predictions_count=masked_count,
+            mae_db=mae_db,
+            rmse_db=rmse_db,
+            min_error_db=min_err,
+            max_error_db=max_err,
+            error_distribution=distrib,
+            is_sparse_warning=is_sparse,
+            sparse_reasons=sparse_reasons,
+            points=point_results,
         )
 
     @staticmethod

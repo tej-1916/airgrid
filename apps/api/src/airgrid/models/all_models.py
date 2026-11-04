@@ -305,6 +305,7 @@ class SurveyMeasurement(Base):
 
     survey_session: Mapped["SurveySession"] = relationship("SurveySession", back_populates="measurements")
     floor: Mapped["Floor"] = relationship("Floor", back_populates="survey_measurements")
+    source_telemetry_snapshot: Mapped[Optional["NetworkTelemetrySnapshot"]] = relationship("NetworkTelemetrySnapshot", lazy="selectin")
 
 
 # 11. Internet Speed Tests

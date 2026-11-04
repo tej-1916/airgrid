@@ -18,6 +18,8 @@ import {
   SurveyComparisonResponse,
   SurveySessionCreatePayload,
   SurveyMeasurementCreatePayload,
+  LiveMeasurementCreatePayload,
+  SurveyValidationResponse,
 } from '../types/survey';
 
 import { SurveyHeader } from '../components/survey/SurveyHeader';
@@ -50,6 +52,8 @@ export const HeatmapsPage: React.FC = () => {
   const [stats, setStats] = useState<SurveySummaryStats | null>(null);
   const [heatmap, setHeatmap] = useState<HeatmapGridResponse | null>(null);
   const [selectedNetwork, setSelectedNetwork] = useState<string>('');
+  const [validation, setValidation] = useState<SurveyValidationResponse | null>(null);
+  const [validating, setValidating] = useState<boolean>(false);
 
   // Available distinct network SSIDs in the active survey
   const availableNetworks = useMemo(() => {
@@ -265,6 +269,94 @@ export const HeatmapsPage: React.FC = () => {
     setActiveSession(updatedSurvey);
     setMeasurements(updatedSurvey.measurements || []);
     setStats(await surveyService.getSurveyAnalysis(activeSession.id));
+  };
+
+  // 6c. Capture live connected Wi-Fi observation directly at the clicked coordinates
+  const handleCollectLive = async (payload: LiveMeasurementCreatePayload) => {
+    if (!activeSession) return;
+    try {
+      const obs = await surveyService.collectLiveMeasurement(activeSession.id, payload);
+      setFeedbackMsg({
+        type: 'success',
+        text: `Live observation captured: ${obs.rssi_dbm} dBm (${obs.network_label || 'Connected link'}) at (${obs.position_x}, ${obs.position_y}) px.`,
+      });
+      setPendingClickCoords(null);
+
+      const updatedSurvey = await surveyService.getSurvey(activeSession.id);
+      setActiveSession(updatedSurvey);
+      setMeasurements(updatedSurvey.measurements || []);
+      setStats(await surveyService.getSurveyAnalysis(activeSession.id));
+
+      if ((updatedSurvey.measurements?.length || 0) >= 3) {
+        try {
+          const targetNet = selectedNetwork || obs.network_label || undefined;
+          const h = await surveyService.getHeatmap(activeSession.id, { networkLabel: targetNet });
+          setHeatmap(h);
+        } catch {
+          // ignore
+        }
+      }
+    } catch (err: any) {
+      setFeedbackMsg({ type: 'error', text: err.message || 'Failed to capture live Wi-Fi telemetry.' });
+      throw err;
+    }
+  };
+
+  // 6d. Reposition mistaken measurement point with audit tracking
+  const handleRepositionMeasurement = async (m: SurveyMeasurement, newX: number, newY: number, reason?: string) => {
+    if (!activeSession) return;
+    try {
+      const updated = await surveyService.repositionMeasurement(activeSession.id, m.id, {
+        position_x: newX,
+        position_y: newY,
+        reason,
+      });
+      setFeedbackMsg({
+        type: 'success',
+        text: `Point repositioned to (${updated.position_x}, ${updated.position_y}) px. Audit logged.`,
+      });
+      setSelectedMeasurement(updated);
+
+      const updatedSurvey = await surveyService.getSurvey(activeSession.id);
+      setActiveSession(updatedSurvey);
+      setMeasurements(updatedSurvey.measurements || []);
+      setStats(await surveyService.getSurveyAnalysis(activeSession.id));
+
+      if ((updatedSurvey.measurements?.length || 0) >= 3) {
+        try {
+          const targetNet = selectedNetwork || undefined;
+          const h = await surveyService.getHeatmap(activeSession.id, { networkLabel: targetNet });
+          setHeatmap(h);
+        } catch {
+          // ignore
+        }
+      }
+    } catch (err: any) {
+      setFeedbackMsg({ type: 'error', text: err.message || 'Failed to reposition point.' });
+      throw err;
+    }
+  };
+
+  // 6e. Run Leave-One-Out Cross-Validation (LOOCV) for prediction accuracy
+  const handleRunValidation = async () => {
+    if (!activeSession) return;
+    try {
+      setValidating(true);
+      const val = await surveyService.getSurveyValidation(activeSession.id, {
+        networkLabel: selectedNetwork || undefined,
+      });
+      setValidation(val);
+      setFeedbackMsg({
+        type: 'success',
+        text: val.mae_db !== null
+          ? `LOOCV validation completed: MAE is ±${val.mae_db} dBm across ${val.valid_predictions_count} points.`
+          : 'LOOCV validation completed.',
+      });
+    } catch (err: any) {
+      setFeedbackMsg({ type: 'error', text: err.message || 'Validation evaluation failed.' });
+    } finally {
+      setValidating(false);
+    }
   };
 
   // 7. Delete measurement
@@ -494,6 +586,7 @@ export const HeatmapsPage: React.FC = () => {
               setPendingClickCoords(null);
             }}
             onDeleteMeasurement={handleDeleteMeasurement}
+            onRepositionMeasurement={handleRepositionMeasurement}
             canMutate={isEngineerOrAdmin}
             availableNetworks={availableNetworks}
             selectedNetwork={selectedNetwork}
@@ -526,6 +619,7 @@ export const HeatmapsPage: React.FC = () => {
               floorId={selectedFloorId || ''}
               clickCoords={pendingClickCoords}
               onSave={handleSaveMeasurement}
+              onCollectLive={handleCollectLive}
               onCancel={() => setPendingClickCoords(null)}
               scaleRatio={floorPlan?.scale_pixels_per_meter || 20.0}
               isCalibrated={floorPlan?.is_calibrated || false}
@@ -535,7 +629,13 @@ export const HeatmapsPage: React.FC = () => {
           )}
 
           {/* Analysis & Statistical Evidence Panel (Area D) */}
-          <SurveyAnalysisPanel stats={stats} loading={loading} />
+          <SurveyAnalysisPanel
+            stats={stats}
+            validation={validation}
+            loading={loading}
+            onRunValidation={handleRunValidation}
+            validating={validating}
+          />
         </div>
       </div>
 

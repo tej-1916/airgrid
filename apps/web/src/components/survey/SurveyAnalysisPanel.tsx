@@ -6,18 +6,26 @@ import {
   Wifi,
   Cpu,
   AlertTriangle,
+  CheckCircle2,
+  Play,
 } from 'lucide-react';
-import { SurveySummaryStats } from '../../types/survey';
+import { SurveySummaryStats, SurveyValidationResponse } from '../../types/survey';
 import { SignalLegend, getSignalColor } from './SignalLegend';
 
 interface SurveyAnalysisPanelProps {
   stats: SurveySummaryStats | null;
+  validation?: SurveyValidationResponse | null;
   loading?: boolean;
+  onRunValidation?: () => void;
+  validating?: boolean;
 }
 
 export const SurveyAnalysisPanel: React.FC<SurveyAnalysisPanelProps> = ({
   stats,
+  validation,
   loading = false,
+  onRunValidation,
+  validating = false,
 }) => {
   if (loading) {
     return (
@@ -176,6 +184,85 @@ export const SurveyAnalysisPanel: React.FC<SurveyAnalysisPanelProps> = ({
           </p>
         </div>
       )}
+
+      {/* Heatmap Leave-One-Out Cross-Validation (LOOCV Accuracy) */}
+      <div className="p-3 rounded-lg bg-[#F5F5F3] border border-[#D9DBDE] space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-[#0B0B0D]">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            <span>LOOCV Model Accuracy</span>
+          </div>
+          {onRunValidation && (
+            <button
+              type="button"
+              onClick={onRunValidation}
+              disabled={validating || !hasData || stats.total_measurements < 3}
+              className="px-2 py-0.5 rounded text-[10px] font-semibold bg-[#BE6B37] text-white hover:bg-[#9A5226] disabled:opacity-40 flex items-center gap-1 transition-colors"
+            >
+              <Play className="w-2.5 h-2.5" />
+              <span>{validating ? 'Evaluating...' : 'Run LOOCV'}</span>
+            </button>
+          )}
+        </div>
+
+        {validation ? (
+          <div className="space-y-1.5 text-xs">
+            <div className="grid grid-cols-2 gap-2">
+              <div className="p-2 rounded bg-white border border-[#D9DBDE]">
+                <span className="text-[10px] text-[#737373] uppercase font-bold block">Mean Absolute Error</span>
+                <span className="text-sm font-bold font-mono text-[#0B0B0D]">
+                  {validation.mae_db !== null ? `±${validation.mae_db} dBm` : 'N/A'}
+                </span>
+              </div>
+              <div className="p-2 rounded bg-white border border-[#D9DBDE]">
+                <span className="text-[10px] text-[#737373] uppercase font-bold block">Valid Predictions</span>
+                <span className="text-sm font-bold font-mono text-[#0B0B0D]">
+                  {validation.valid_predictions_count} / {validation.evaluated_samples_count}
+                </span>
+              </div>
+            </div>
+
+            {/* Error distribution buckets */}
+            {validation.error_distribution && Object.keys(validation.error_distribution).length > 0 && (
+              <div className="p-2 rounded bg-white border border-[#D9DBDE] space-y-1">
+                <span className="text-[10px] text-[#737373] uppercase font-bold block">Error Distribution</span>
+                <div className="grid grid-cols-4 gap-1 text-[10px] font-mono text-center">
+                  <div className="p-1 rounded bg-emerald-50 text-emerald-800 border border-emerald-200">
+                    <div>≤2 dB</div>
+                    <div className="font-bold">{validation.error_distribution.under_2db || 0}</div>
+                  </div>
+                  <div className="p-1 rounded bg-teal-50 text-teal-800 border border-teal-200">
+                    <div>2-5 dB</div>
+                    <div className="font-bold">{validation.error_distribution['2_to_5db'] || 0}</div>
+                  </div>
+                  <div className="p-1 rounded bg-amber-50 text-amber-800 border border-amber-200">
+                    <div>5-10 dB</div>
+                    <div className="font-bold">{validation.error_distribution['5_to_10db'] || 0}</div>
+                  </div>
+                  <div className="p-1 rounded bg-rose-50 text-rose-800 border border-rose-200">
+                    <div>&gt;10 dB</div>
+                    <div className="font-bold">{validation.error_distribution.over_10db || 0}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {validation.is_sparse_warning && validation.sparse_reasons.length > 0 && (
+              <div className="p-2 rounded bg-amber-50 border border-amber-200 text-amber-800 text-[10px] space-y-0.5">
+                <span className="font-bold flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0" />
+                  <span>Sparse Sample Notice</span>
+                </span>
+                <p>{validation.sparse_reasons.join(' ')}</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-[10px] text-[#737373] leading-tight">
+            Leave-one-out cross validation predicts each observation using the remaining survey points to calculate empirical prediction error (MAE dBm).
+          </p>
+        )}
+      </div>
 
       {/* Signal Legend */}
       <SignalLegend />

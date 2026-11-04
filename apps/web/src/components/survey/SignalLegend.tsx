@@ -110,10 +110,19 @@ export const SignalLegend: React.FC<SignalLegendProps> = ({ compact = false }) =
         </div>
       </div>
 
+      {/* Unknown / Spatial Mask Indicator */}
+      <div className="flex items-center justify-between p-2 rounded-lg bg-[#F5F5F3] border border-[#D9DBDE] text-[11px] text-[#737373]">
+        <div className="flex items-center gap-2">
+          <span className="w-3.5 h-3.5 rounded border border-dashed border-[#737373] bg-transparent" />
+          <span className="font-semibold text-[#0B0B0D]">Unknown / Unmeasured Area</span>
+        </div>
+        <span className="text-[10px] font-mono">Masked (&gt;18m / outside perimeter)</span>
+      </div>
+
       <div className="flex items-start gap-1.5 pt-1 text-[10px] text-[#737373] border-t border-[#D9DBDE]/50">
         <Info className="w-3.5 h-3.5 text-[#BE6B37] shrink-0 mt-0.5" />
         <p className="leading-tight">
-          Illustrative thresholds. Strong RSSI indicates received radio power, not guaranteed internet throughput.
+          Physical radio signal strength. Areas outside survey boundaries are marked unknown to avoid speculative extrapolation.
         </p>
       </div>
     </div>

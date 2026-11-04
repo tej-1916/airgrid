@@ -19,6 +19,9 @@ export interface SurveyMeasurement {
   notes?: string | null;
   data_provenance: string;
   source_telemetry_snapshot_id?: string | null;
+  rx_bitrate_mbps?: number | null;
+  tx_bitrate_mbps?: number | null;
+  interface_name?: string | null;
   observed_at: string;
   created_at: string;
 }
@@ -67,6 +70,49 @@ export interface SurveyMeasurementCreatePayload {
   channel?: number;
   notes?: string;
   data_provenance?: string;
+}
+
+export interface LiveMeasurementCreatePayload {
+  position_x: number;
+  position_y: number;
+  notes?: string;
+}
+
+export interface MeasurementRepositionPayload {
+  position_x: number;
+  position_y: number;
+  reason?: string;
+}
+
+export interface PointValidationDetail {
+  point_id: string;
+  position_x: number;
+  position_y: number;
+  actual_rssi_dbm: number;
+  predicted_rssi_dbm: number | null;
+  absolute_error_db: number | null;
+  error_db: number | null;
+  is_masked: boolean;
+  distance_to_nearest_sample_m: number | null;
+  network_label?: string | null;
+}
+
+export interface SurveyValidationResponse {
+  survey_session_id: string;
+  floor_id: string;
+  method: string;
+  evaluated_samples_count: number;
+  valid_predictions_count: number;
+  masked_predictions_count: number;
+  mae_db: number | null;
+  rmse_db: number | null;
+  min_error_db: number | null;
+  max_error_db: number | null;
+  error_distribution: Record<string, number>;
+  is_sparse_warning: boolean;
+  sparse_reasons: string[];
+  points: PointValidationDetail[];
+  disclaimer: string;
 }
 
 export interface HeatmapGridResponse {

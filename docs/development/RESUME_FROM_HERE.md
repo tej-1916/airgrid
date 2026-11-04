@@ -1,10 +1,14 @@
 # Resume AirGrid — Operational State & Handoff Guide
 
-**Last Updated:** 2026-10-29  
+**Last Updated:** 2026-11-04  
 **Current Branch:** `feat/airgrid-real-network-intelligence`  
-**Latest Git Commit:** `7756e94`  
-**Test Suite State:** **202 passed, 0 failures, 0 warnings** (100% clean)  
+**Test Suite State:** **212 passed, 0 failures, 0 warnings** (100% clean)  
 **Database Migration Head:** `0012_campus_access_control` (clean on both `airgrid_test_db` and `airgrid_db`)  
+**Completed Milestones:**
+- Milestone 1: Real Network Intelligence (Verified)
+- Milestone 2: Real AI Intelligence (Verified)
+- Milestone 3A: Real Speed Testing (Verified)
+- Milestone 3B: Real Wi-Fi Heatmaps (Verified)
 
 ---
 
@@ -13,23 +17,20 @@
 From the repository root (`~/Projects/airgrid`):
 
 ```bash
-# 1. Run all backend tests (must report 202 passed, 0 warnings)
+# 1. Run all backend tests (must report 212 passed, 0 failures)
 apps/api/.venv/bin/python -m pytest
 
 # 2. Check schema synchronization with PostgreSQL test DB
-cd apps/api && AIRGRID_DATABASE_URL="postgresql+asyncpg://airgrid:airgrid_local_dev_secret@127.0.0.1:5432/airgrid_test_db" .venv/bin/alembic check && cd ../..
+cd apps/api && .venv/bin/alembic check && cd ../..
 
 # 3. Build frontend bundle (TypeScript + Vite)
 npm --prefix apps/web run build
 
 # 4. Run full 16-route isolated browser test suite (desktop + mobile viewports)
-npm --prefix apps/web run dev -- --host 127.0.0.1 --port 5187 &
+npm --prefix apps/web run preview -- --port 5199 --host 127.0.0.1 &
 VITE_PID=$!
-AIRGRID_PLAYWRIGHT_MODULE=~/.npm/_npx/9833c18b2d85bc59/node_modules/playwright node docs/verification/verify_final.cjs
+NODE_PATH=/home/teju/.local/lib/node_modules/@playwright/cli/node_modules AIRGRID_BROWSER_URL=http://127.0.0.1:5199 node docs/verification/verify_heatmaps_e2e.cjs
 kill $VITE_PID
-
-# 5. Run live browser validation on AI models and dashboard
-AIRGRID_PLAYWRIGHT_MODULE=~/.npm/_npx/9833c18b2d85bc59/node_modules/playwright node docs/verification/verify_live_ai_models.cjs
 ```
 
 ---
@@ -55,68 +56,48 @@ npm run dev -- --host 127.0.0.1 --port 5173
 
 ## 3. Completed Scope Overview
 
-1. **FreeLLMAPI & AI Gateway Integration:**
-   - Provider adapter supports `AIRGRID_AI_API_BASE_URL` (with backward-compatible alias `AIRGRID_AI_GATEWAY_URL`), API key, model selection, latency measurement, and runtime model discovery.
-   - Initial boot probe discovers 288 available models, dynamically advertising `auto` and specific router slots.
-   - Operator can test connections and select active models at runtime via `/ai-models` or API `POST /api/v1/ai/select-model`.
-   - Local deterministic analysis is preserved as default; unconfigured gateway is safe and non-blocking.
-   - Consent modal requires operator confirmation before outbound requests leave AirGrid.
+1. **Milestone 3B: Real Wi-Fi Heatmaps (Completed):**
+   - **Calibrated Coordinate System:** Physical floor plan dimensions mapped to meters, preventing scaling distortions.
+   - **Read-Only Live Wireless Telemetry:** Manually triggered capture (`POST /api/v1/surveys/{id}/measurements/collect-live`) querying Linux `iw` on `wlp0s20f3`. Records RSSI, channel, frequency, band, and negotiated PHY rates (`rx_bitrate_mbps`, `tx_bitrate_mbps`) linked to `NetworkTelemetrySnapshot` (`field_instrument_verified`).
+   - **IDW Spatial Interpolation with Masks:** Power $p=2.0$, smoothing $\epsilon=0.5$ m, 18.0 m radial cutoff, and Andrew's Monotone Chain 2D convex hull with 4.0 m buffer. Areas beyond measured support are rendered completely transparent ("Unknown / Unmeasured Area").
+   - **Leave-One-Out Cross-Validation (LOOCV):** Built-in empirical error estimation (`GET /api/v1/surveys/{id}/validation`) reporting MAE (dBm), RMSE, error distribution, and sparsity alerts.
+   - **Audited Repositioning:** Interactive correction of misplaced points (`PATCH /api/v1/surveys/{id}/measurements/{id}/reposition`) with boundary validation and audit logging (`action="survey.measurement_repositioned"`).
 
-2. **Real Wi-Fi Measurement & Collector Telemetry:**
-   - Registered collectors ingest signed Linux network telemetry using HMAC-SHA256 signatures with ±300s window and nonce deduplication.
-   - Secrets are shown once upon creation and never stored or logged in plaintext.
-   - Operator-controlled Linux CLI tool: `python -m airgrid.cli.collector --collect --submit`.
-   - Ground truth segregation: only verified snapshots placed on calibrated floor plans count as `field_instrument_verified` measurements.
+2. **Milestone 3A: Real Speed Testing (Completed):**
+   - Explicit architectural separation between Wi-Fi radio PHY link rates (e.g. 1200+ Mbps) and end-to-end TCP/HTTP internet throughput.
+   - Hard duration boundary (<=10s) and bandwidth cap (<=150 MB) enforced via client-side deadline timers.
+   - Standalone audit isolation and explicit operator consent modal before running tests.
 
-3. **Campus-Scoped Authorization (`0012_campus_access_control`):**
-   - Non-administrators (`network_engineer`, `viewer`) are strictly scoped to assigned campuses via `CampusMembership`.
-   - IDOR protection prevents cross-tenant access to floors, plans, surveys, diagnostic reports, and optimization plans.
-   - Administrators retain global governance across all campuses.
+3. **Milestone 2: Real AI Intelligence (Completed):**
+   - FreeLLMAPI integration with dynamic discovery of models (`auto`, `deepseek-chat`, `llama-3.3-70b`).
+   - Local deterministic analysis as default; explicit operator consent gate before outbound AI reasoning.
+   - Evidence-grounded analyst with immutable audit trails.
 
-4. **Complete Operational Views (16 of 16 Routes Operational):**
-   - `/`: Landing page with operational showcase.
-   - `/auth/login`: Argon2id authenticated session management with anti-CSRF protection.
-   - `/dashboard`: Command Center with live PostgreSQL metrics and verified roadmap status.
-   - `/campuses`: Campus, building, and floor plan hierarchy with 2-point pixel calibration.
-   - `/speed-test`: Cloudflare Edge throughput and latency measurement.
-   - `/heatmaps`: Interactive Wi-Fi Survey Studio and IDW signal propagation heatmap overlay.
-   - `/devices`: Linux collector management and access point inventory.
-   - `/monitor`: Historical telemetry trends with 24h/7d/30d filtering.
-   - `/diagnostics`: Deterministic IEEE 802.11 diagnostics and gateway hop latency reports.
-   - `/ai-models`: Provider status cards, live connection probe, runtime model selector, and privacy boundaries.
-   - `/ai-analyst`: Grounded evidence analyst with citation checks and explicit outbound consent gate.
-   - `/optimization`: Network RF optimization studio with AP placement recommendations.
-   - `/ml-lab`: Machine learning prediction lab with multi-campus dataset readiness.
-   - `/alerts`: Deterministic findings inbox with severity/category filters.
-   - `/reports`: Unified archive with printable views and JSON export.
-   - `/settings`: Platform settings, PostgreSQL engine telemetry, and measurement guardrails.
+4. **Milestone 1: Real Network Intelligence (Completed):**
+   - Linux collector ingesting signed HMAC-SHA256 telemetry with replay protection.
+   - Campus-scoped authorization (`0012_campus_access_control`) with role-based access control.
+   - Preserved operational records in `airgrid_db`.
 
 ---
 
-## 4. Real Provider & Real Hardware Execution (For the Operator)
+## 4. Real Site Survey Execution (For the Operator)
 
-### A. Live FreeLLMAPI Connection
-The environment in `apps/api/.env` is configured for FreeLLMAPI:
-```bash
-AIRGRID_AI_ENABLED=true
-AIRGRID_AI_PROVIDER=openai_compatible
-AIRGRID_AI_API_BASE_URL=http://127.0.0.1:3001/v1
-AIRGRID_AI_API_KEY="<unified-api-key>"
-AIRGRID_AI_DEFAULT_MODEL=auto
-```
-1. Navigate to `http://127.0.0.1:5173/ai-models`.
-2. Confirm Gateway State is **Configured** and Last Health Check shows **Available** with discovered models.
-3. Click **Test Connection** to execute an active probe.
+### A. Live Host Wireless Environment
+* **Wireless NIC Interface:** `wlp0s20f3`
+* **Current Associated SSID:** `MOJO-JAN-C2-F1`
+* **Access Point BSSID:** `50:91:E3:75:8F:C3`
+* **RF Channel & Band:** Channel 40 (5200 MHz, 160 MHz width, 5 GHz band)
+* **Local Measured RSSI:** `-53.0 dBm` (Strong)
+* **Negotiated PHY Link Rates:** `1297.1 Mbps RX / 1152.8 Mbps TX`
 
-### B. Live Wi-Fi Collector Run
-To collect authentic network telemetry from a Linux laptop:
-1. Log in as Administrator and navigate to `/devices`.
-2. Click **Register Collector**, name it (e.g., `Lab-ThinkPad`), and copy the displayed one-time secret.
-3. On the Linux laptop with Wi-Fi enabled, run:
-   ```bash
-   export AIRGRID_COLLECTOR_ID="<collector-uuid>"
-   export AIRGRID_COLLECTOR_SECRET="<one-time-secret>"
-   export AIRGRID_API_URL="http://<server-ip>:8000"
-   apps/api/.venv/bin/python -m airgrid.cli.collector --collect --submit
-   ```
-4. Verify the snapshot appears in `/devices` under observations and in `/diagnostics` under **Registered collectors**.
+### B. Performing an Authorized Wi-Fi Survey
+1. Navigate to `/heatmaps` (Wi-Fi Survey Studio).
+2. Select an authorized campus, building, and calibrated floor plan.
+3. Click **New Survey Session** to initialize an active session.
+4. Physically position the measuring laptop at a target station.
+5. Click on the floor plan canvas at that exact physical position.
+6. Review the live telemetry displayed in the **Signal Measurement Panel** (SSID, BSSID, RSSI, and negotiated PHY rates).
+7. Click **Capture Live Observation**. The point is persisted with provenance `field_instrument_verified`.
+8. Repeat across 3 or more stations on the floor.
+9. Click **Generate Heatmap** to compute the IDW coverage grid.
+10. Click **Run LOOCV** in the Survey Analysis Panel to verify empirical model accuracy (MAE in dBm).

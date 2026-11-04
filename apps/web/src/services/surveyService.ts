@@ -6,6 +6,9 @@ import {
   SurveySessionCreatePayload,
   SurveySessionUpdatePayload,
   SurveyMeasurementCreatePayload,
+  LiveMeasurementCreatePayload,
+  MeasurementRepositionPayload,
+  SurveyValidationResponse,
   HeatmapGridResponse,
   SurveySummaryStats,
   SurveyComparisonResponse,
@@ -96,6 +99,50 @@ export const surveyService = {
       method: 'POST',
       body: JSON.stringify(payload),
     });
+  },
+
+  /**
+   * Capture a live Wi-Fi observation directly at specified coordinates.
+   */
+  async collectLiveMeasurement(
+    surveyId: string,
+    payload: LiveMeasurementCreatePayload
+  ): Promise<SurveyMeasurement> {
+    return apiRequest<SurveyMeasurement>(`/api/v1/surveys/${surveyId}/measurements/collect-live`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  /**
+   * Correct the coordinates of an existing measurement with audit history.
+   */
+  async repositionMeasurement(
+    surveyId: string,
+    measurementId: string,
+    payload: MeasurementRepositionPayload
+  ): Promise<SurveyMeasurement> {
+    return apiRequest<SurveyMeasurement>(
+      `/api/v1/surveys/${surveyId}/measurements/${measurementId}/reposition`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      }
+    );
+  },
+
+  /**
+   * Run Leave-One-Out Cross-Validation (LOOCV) to empirically validate heatmap accuracy.
+   */
+  async getSurveyValidation(
+    surveyId: string,
+    params: { networkLabel?: string; power?: number } = {}
+  ): Promise<SurveyValidationResponse> {
+    const query = new URLSearchParams();
+    if (params.networkLabel) query.set('network_label', params.networkLabel);
+    if (params.power) query.set('power', params.power.toString());
+    const qs = query.toString();
+    return apiRequest<SurveyValidationResponse>(`/api/v1/surveys/${surveyId}/validation${qs ? `?${qs}` : ''}`);
   },
 
   /**

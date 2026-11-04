@@ -54,10 +54,27 @@ class SurveyMeasurementResponse(BaseModel):
     notes: Optional[str] = None
     data_provenance: str
     source_telemetry_snapshot_id: Optional[uuid.UUID] = None
+    rx_bitrate_mbps: Optional[float] = None
+    tx_bitrate_mbps: Optional[float] = None
+    interface_name: Optional[str] = None
     observed_at: datetime
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class LiveMeasurementCreate(BaseModel):
+    """Operator captures current connected Wi-Fi link parameters at the selected floor coordinates."""
+    position_x: float = Field(..., ge=0.0, description="X pixel coordinate on floor plan")
+    position_y: float = Field(..., ge=0.0, description="Y pixel coordinate on floor plan")
+    notes: Optional[str] = Field(None, max_length=500, description="Optional operator observation note")
+
+
+class MeasurementRepositionRequest(BaseModel):
+    """Operator adjusts coordinates of an erroneously placed survey point with audit tracking."""
+    position_x: float = Field(..., ge=0.0, description="Corrected X pixel coordinate on floor plan")
+    position_y: float = Field(..., ge=0.0, description="Corrected Y pixel coordinate on floor plan")
+    reason: Optional[str] = Field(None, max_length=500, description="Reason for position correction (recorded in audit log)")
 
 
 class SnapshotPlacementCreate(BaseModel):
@@ -136,3 +153,38 @@ class SurveyComparisonResponse(BaseModel):
     min_rssi_delta_db: Optional[float]
     max_rssi_delta_db: Optional[float]
     notes: str
+
+
+class PointValidationDetail(BaseModel):
+    point_id: uuid.UUID
+    position_x: float
+    position_y: float
+    actual_rssi_dbm: float
+    predicted_rssi_dbm: Optional[float] = None
+    absolute_error_db: Optional[float] = None
+    error_db: Optional[float] = None
+    is_masked: bool = False
+    distance_to_nearest_sample_m: Optional[float] = None
+    network_label: Optional[str] = None
+
+
+class SurveyValidationResponse(BaseModel):
+    survey_session_id: uuid.UUID
+    floor_id: uuid.UUID
+    method: str = "leave_one_out_cross_validation"
+    evaluated_samples_count: int
+    valid_predictions_count: int
+    masked_predictions_count: int
+    mae_db: Optional[float] = None
+    rmse_db: Optional[float] = None
+    min_error_db: Optional[float] = None
+    max_error_db: Optional[float] = None
+    error_distribution: Dict[str, int] = Field(default_factory=dict)
+    is_sparse_warning: bool = False
+    sparse_reasons: List[str] = Field(default_factory=list)
+    points: List[PointValidationDetail] = Field(default_factory=list)
+    disclaimer: str = (
+        "Leave-one-out cross-validation (LOOCV) quantifies spatial interpolation accuracy "
+        "exclusively against held-out genuine observations. Unsupported areas remain masked."
+    )
+

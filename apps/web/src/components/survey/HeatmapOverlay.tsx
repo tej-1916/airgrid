@@ -62,6 +62,7 @@ export const HeatmapOverlay: React.FC<HeatmapOverlayProps> = ({
     if (!ctx) return;
 
     const { grid_width, grid_height, pixel_width, pixel_height, grid_data } = heatmap;
+    if (!grid_data || !grid_data.length) return;
 
     // Set canvas dimensions to match natural floor plan image
     canvas.width = pixel_width;

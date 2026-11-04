@@ -26,6 +26,7 @@ interface FloorPlanSurveyCanvasProps {
   selectedMeasurement: SurveyMeasurement | null;
   onSelectMeasurement: (m: SurveyMeasurement | null) => void;
   onDeleteMeasurement?: (m: SurveyMeasurement) => void;
+  onRepositionMeasurement?: (m: SurveyMeasurement, newX: number, newY: number, reason?: string) => Promise<void>;
   canMutate?: boolean;
   availableNetworks?: string[];
   selectedNetwork?: string;
@@ -41,6 +42,7 @@ export const FloorPlanSurveyCanvas: React.FC<FloorPlanSurveyCanvasProps> = ({
   selectedMeasurement,
   onSelectMeasurement,
   onDeleteMeasurement,
+  onRepositionMeasurement,
   canMutate = false,
   availableNetworks = [],
   selectedNetwork = '',
@@ -51,6 +53,23 @@ export const FloorPlanSurveyCanvas: React.FC<FloorPlanSurveyCanvasProps> = ({
   const [panPosition, setPanPosition] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isPanning, setIsPanning] = useState<boolean>(false);
   const [panStart, setPanStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
+
+  // Reposition mode states
+  const [isRepositioning, setIsRepositioning] = useState<boolean>(false);
+  const [repositionX, setRepositionX] = useState<number>(0);
+  const [repositionY, setRepositionY] = useState<number>(0);
+  const [repositionReason, setRepositionReason] = useState<string>('');
+  const [repositioningLoading, setRepositioningLoading] = useState<boolean>(false);
+
+  // Sync repositioning inputs when selected measurement changes
+  React.useEffect(() => {
+    if (selectedMeasurement) {
+      setRepositionX(selectedMeasurement.position_x);
+      setRepositionY(selectedMeasurement.position_y);
+      setRepositionReason('');
+      setIsRepositioning(false);
+    }
+  }, [selectedMeasurement]);
 
   // Layer visibility toggles
   const [showMarkers, setShowMarkers] = useState<boolean>(true);
@@ -289,64 +308,184 @@ export const FloorPlanSurveyCanvas: React.FC<FloorPlanSurveyCanvasProps> = ({
         {selectedMeasurement && (
           <div
             onClick={(e) => e.stopPropagation()}
-            className="absolute top-4 left-4 p-3 rounded-xl bg-black/85 backdrop-blur-md border border-white/20 text-white text-xs space-y-2 shadow-2xl max-w-xs z-30"
+            className="absolute top-4 left-4 p-3.5 rounded-xl bg-black/90 backdrop-blur-md border border-white/20 text-white text-xs space-y-2.5 shadow-2xl max-w-sm z-30"
           >
             <div className="flex items-center justify-between border-b border-white/15 pb-1.5">
-              <span className="font-bold text-white uppercase tracking-wider text-[11px]">
-                Point Inspector
-              </span>
+              <div className="flex items-center gap-1.5">
+                <span className="font-bold text-white uppercase tracking-wider text-[11px]">
+                  Point Inspector
+                </span>
+                <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-bold ${
+                  selectedMeasurement.data_provenance === 'field_instrument_verified'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                }`}>
+                  {selectedMeasurement.data_provenance === 'field_instrument_verified' ? 'Verified Telemetry' : 'Operator Reported'}
+                </span>
+              </div>
               <button
                 onClick={() => onSelectMeasurement(null)}
-                className="text-slate-400 hover:text-white text-xs font-mono"
+                className="text-slate-400 hover:text-white text-xs font-mono ml-2"
               >
                 ✕
               </button>
             </div>
 
-            <div className="space-y-1 font-mono text-[11px]">
-              <div className="flex justify-between">
-                <span className="text-slate-400">Position:</span>
-                <span>({selectedMeasurement.position_x}, {selectedMeasurement.position_y}) px</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Signal:</span>
-                <span
-                  style={{ color: getSignalColor(selectedMeasurement.rssi_dbm).hex }}
-                  className="font-bold"
-                >
-                  {selectedMeasurement.rssi_dbm} dBm
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-400">Source:</span>
-                <span className="text-slate-200 capitalize">
-                  {selectedMeasurement.measurement_source.replace('_', ' ')}
-                </span>
-              </div>
-              {selectedMeasurement.network_label && (
-                <div className="flex justify-between">
-                  <span className="text-slate-400">SSID:</span>
-                  <span className="text-slate-200">{selectedMeasurement.network_label}</span>
+            {!isRepositioning ? (
+              <>
+                <div className="space-y-1 font-mono text-[11px]">
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Position:</span>
+                    <span>({selectedMeasurement.position_x}, {selectedMeasurement.position_y}) px</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Signal:</span>
+                    <span
+                      style={{ color: getSignalColor(selectedMeasurement.rssi_dbm).hex }}
+                      className="font-bold"
+                    >
+                      {selectedMeasurement.rssi_dbm} dBm
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Source:</span>
+                    <span className="text-slate-200 capitalize">
+                      {selectedMeasurement.measurement_source.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                  {selectedMeasurement.network_label && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">SSID:</span>
+                      <span className="text-slate-200">{selectedMeasurement.network_label}</span>
+                    </div>
+                  )}
+                  {selectedMeasurement.ap_reference && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">AP / BSSID:</span>
+                      <span className="text-slate-200">{selectedMeasurement.ap_reference}</span>
+                    </div>
+                  )}
+                  {selectedMeasurement.frequency_mhz && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">Freq/Channel:</span>
+                      <span className="text-slate-200">
+                        {selectedMeasurement.frequency_mhz} MHz {selectedMeasurement.channel ? `(Ch ${selectedMeasurement.channel})` : ''}
+                      </span>
+                    </div>
+                  )}
+                  {selectedMeasurement.rx_bitrate_mbps && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-400">PHY Link:</span>
+                      <span className="text-slate-200">
+                        RX {selectedMeasurement.rx_bitrate_mbps} / TX {selectedMeasurement.tx_bitrate_mbps ?? '—'} Mbps
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between pt-1 border-t border-white/10 text-[10px]">
+                    <span className="text-slate-400">Observed:</span>
+                    <span className="text-slate-300">
+                      {new Date(selectedMeasurement.observed_at).toLocaleString()}
+                    </span>
+                  </div>
+                  {selectedMeasurement.notes && (
+                    <div className="pt-1 text-[10px] text-slate-300 font-sans italic border-t border-white/10">
+                      &quot;{selectedMeasurement.notes}&quot;
+                    </div>
+                  )}
                 </div>
-              )}
-              {selectedMeasurement.notes && (
-                <div className="pt-1 text-[10px] text-slate-300 font-sans italic border-t border-white/10">
-                  &quot;{selectedMeasurement.notes}&quot;
-                </div>
-              )}
-            </div>
 
-            {canMutate && onDeleteMeasurement && (
-              <button
-                onClick={() => {
-                  onDeleteMeasurement(selectedMeasurement);
-                  onSelectMeasurement(null);
-                }}
-                className="w-full mt-2 py-1 px-2 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-colors"
-              >
-                <Trash2 className="w-3 h-3" />
-                <span>Delete Point</span>
-              </button>
+                {canMutate && (
+                  <div className="flex items-center gap-2 pt-1 border-t border-white/10">
+                    {onRepositionMeasurement && (
+                      <button
+                        onClick={() => setIsRepositioning(true)}
+                        className="flex-1 py-1 px-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors"
+                      >
+                        <Sliders className="w-3 h-3 text-[#BE6B37]" />
+                        <span>Reposition</span>
+                      </button>
+                    )}
+                    {onDeleteMeasurement && (
+                      <button
+                        onClick={() => {
+                          onDeleteMeasurement(selectedMeasurement);
+                          onSelectMeasurement(null);
+                        }}
+                        className="py-1 px-2.5 rounded-lg bg-rose-500/20 text-rose-300 border border-rose-500/30 hover:bg-rose-500/30 text-[11px] font-semibold flex items-center justify-center gap-1 transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Delete</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="space-y-2 pt-1">
+                <p className="text-[11px] text-slate-300">Correct mistaken coordinate placement:</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-0.5">X (px)</label>
+                    <input
+                      type="number"
+                      value={repositionX}
+                      onChange={(e) => setRepositionX(parseFloat(e.target.value) || 0)}
+                      className="w-full bg-black/60 border border-white/20 rounded px-2 py-1 text-xs text-white font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-slate-400 block mb-0.5">Y (px)</label>
+                    <input
+                      type="number"
+                      value={repositionY}
+                      onChange={(e) => setRepositionY(parseFloat(e.target.value) || 0)}
+                      className="w-full bg-black/60 border border-white/20 rounded px-2 py-1 text-xs text-white font-mono"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 block mb-0.5">Audit Reason</label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Adjusted 2m north to match column"
+                    value={repositionReason}
+                    onChange={(e) => setRepositionReason(e.target.value)}
+                    className="w-full bg-black/60 border border-white/20 rounded px-2 py-1 text-xs text-white"
+                  />
+                </div>
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setIsRepositioning(false)}
+                    disabled={repositioningLoading}
+                    className="flex-1 py-1 rounded bg-white/10 hover:bg-white/20 text-xs font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={repositioningLoading}
+                    onClick={async () => {
+                      if (!onRepositionMeasurement) return;
+                      try {
+                        setRepositioningLoading(true);
+                        await onRepositionMeasurement(
+                          selectedMeasurement,
+                          repositionX,
+                          repositionY,
+                          repositionReason.trim() || undefined
+                        );
+                        setIsRepositioning(false);
+                      } finally {
+                        setRepositioningLoading(false);
+                      }
+                    }}
+                    className="flex-1 py-1 rounded bg-[#BE6B37] hover:bg-[#9A5226] text-xs font-semibold text-white disabled:opacity-50"
+                  >
+                    {repositioningLoading ? 'Saving...' : 'Save Position'}
+                  </button>
+                </div>
+              </div>
             )}
           </div>
         )}

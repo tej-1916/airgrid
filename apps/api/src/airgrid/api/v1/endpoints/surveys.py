@@ -9,12 +9,15 @@ from airgrid.api.deps import (
     require_engineer_or_admin,
     verify_csrf,
 )
-from airgrid.models.all_models import User, SurveySession, SurveyMeasurement
+from airgrid.models.all_models import User, SurveySession, SurveyMeasurement, AuditLog
 from airgrid.schemas.survey import (
     SurveySessionCreate,
     SurveySessionUpdate,
     SurveyMeasurementCreate,
     SurveyMeasurementResponse,
+    LiveMeasurementCreate,
+    MeasurementRepositionRequest,
+    SurveyValidationResponse,
     SnapshotPlacementCreate,
     SurveySessionResponse,
     SurveySessionListResponse,
@@ -31,6 +34,7 @@ router = APIRouter(prefix="/surveys", tags=["Wi-Fi Surveys & Heatmaps"])
 
 
 def _format_measurement(m: SurveyMeasurement) -> SurveyMeasurementResponse:
+    snap = getattr(m, "source_telemetry_snapshot", None)
     return SurveyMeasurementResponse(
         id=m.id,
         survey_session_id=m.survey_session_id,
@@ -48,6 +52,9 @@ def _format_measurement(m: SurveyMeasurement) -> SurveyMeasurementResponse:
         notes=m.notes,
         data_provenance=m.data_provenance,
         source_telemetry_snapshot_id=m.source_telemetry_snapshot_id,
+        rx_bitrate_mbps=snap.rx_bitrate_mbps if snap else None,
+        tx_bitrate_mbps=snap.tx_bitrate_mbps if snap else None,
+        interface_name=snap.interface_name if snap else None,
         observed_at=m.observed_at,
         created_at=m.created_at,
     )
@@ -320,6 +327,62 @@ async def list_measurements(
     return [_format_measurement(m) for m in measurements]
 
 
+@router.post(
+    "/{survey_id}/measurements/collect-live",
+    response_model=SurveyMeasurementResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Capture live connected Wi-Fi observation at selected coordinates",
+)
+async def collect_live_measurement(
+    payload: LiveMeasurementCreate,
+    survey_id: uuid.UUID = Path(..., description="Survey session UUID"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_engineer_or_admin),
+    _: None = Depends(verify_csrf),
+):
+    """
+    Safely captures a read-only snapshot of the currently connected Wi-Fi link on the measuring host,
+    creates verified instrument telemetry, and associates it with the operator's chosen coordinates.
+    Zero packet sniffing, zero scanning, zero credential access.
+    """
+    await _require_survey_access(db, survey_id, current_user)
+    measurement = await SurveyService.collect_live_measurement(
+        db=db,
+        session_id=survey_id,
+        payload=payload,
+        technician_id=current_user.id,
+    )
+    return _format_measurement(measurement)
+
+
+@router.patch(
+    "/{survey_id}/measurements/{measurement_id}/reposition",
+    response_model=SurveyMeasurementResponse,
+    summary="Correct mistaken position of an existing survey measurement",
+)
+async def reposition_measurement(
+    payload: MeasurementRepositionRequest,
+    survey_id: uuid.UUID = Path(..., description="Survey session UUID"),
+    measurement_id: uuid.UUID = Path(..., description="Measurement UUID"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_engineer_or_admin),
+    _: None = Depends(verify_csrf),
+):
+    """
+    Adjusts the coordinates of a mistakenly placed measurement point.
+    Preserves original measurement values and logs position change in audit history.
+    """
+    await _require_survey_access(db, survey_id, current_user)
+    measurement = await SurveyService.reposition_measurement(
+        db=db,
+        session_id=survey_id,
+        measurement_id=measurement_id,
+        payload=payload,
+        technician_id=current_user.id,
+    )
+    return _format_measurement(measurement)
+
+
 @router.delete(
     "/{survey_id}/measurements/{measurement_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -349,6 +412,7 @@ async def delete_measurement(
     summary="Retrieve IDW estimated coverage heatmap grid",
 )
 async def get_or_calculate_heatmap(
+    request: Request,
     survey_id: uuid.UUID = Path(..., description="Survey session UUID"),
     grid_cols: int = Query(80, ge=20, le=120, description="Horizontal grid density"),
     grid_rows: int = Query(50, ge=15, le=80, description="Vertical grid density"),
@@ -364,7 +428,7 @@ async def get_or_calculate_heatmap(
     Enforces convex-hull spatial support masking and per-network isolation to prevent contamination.
     """
     await _require_survey_access(db, survey_id, current_user)
-    return await SurveyService.calculate_heatmap(
+    result = await SurveyService.calculate_heatmap(
         db=db,
         session_id=survey_id,
         grid_cols=grid_cols,
@@ -373,6 +437,27 @@ async def get_or_calculate_heatmap(
         network_label=network_label,
         ap_reference=ap_reference,
     )
+    if request.method == "POST":
+        db.add(
+            AuditLog(
+                actor_id=current_user.id,
+                action="survey.heatmap_generated",
+                resource_type="survey_sessions",
+                resource_id=str(survey_id),
+                payload={
+                    "sample_count": result.sample_count,
+                    "grid_cols": grid_cols,
+                    "grid_rows": grid_rows,
+                    "power": power,
+                    "network_label": result.network_label,
+                    "min_rssi": result.min_rssi,
+                    "max_rssi": result.max_rssi,
+                    "avg_rssi": result.avg_rssi,
+                },
+            )
+        )
+        await db.commit()
+    return result
 
 
 @router.get(
@@ -388,3 +473,28 @@ async def get_survey_analysis(
     """Computes genuine mathematical min/max/average RSSI, source breakdown, and coverage estimates."""
     await _require_survey_access(db, survey_id, current_user)
     return await SurveyService.get_survey_analysis(db, survey_id)
+
+
+@router.get(
+    "/{survey_id}/validation",
+    response_model=SurveyValidationResponse,
+    summary="Evaluate heatmap interpolation accuracy via Leave-One-Out Cross-Validation",
+)
+async def validate_survey_heatmap(
+    survey_id: uuid.UUID = Path(..., description="Survey session UUID"),
+    network_label: Optional[str] = Query(None, description="Optional network SSID filter"),
+    power: float = Query(2.0, ge=1.0, le=4.0, description="IDW distance weighting power"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_authenticated),
+):
+    """
+    Empirically validates spatial IDW interpolation accuracy by holding out each survey point,
+    predicting its signal strength using the remaining points, and computing Mean Absolute Error (MAE in dBm).
+    """
+    await _require_survey_access(db, survey_id, current_user)
+    return await SurveyService.validate_survey_heatmap(
+        db=db,
+        session_id=survey_id,
+        network_label=network_label,
+        power=power,
+    )

@@ -1,7 +1,7 @@
 import uuid
 import pytest
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, and_
 
 from airgrid.core.database import AsyncSessionLocal
 from airgrid.core.security import hash_password
@@ -878,3 +878,252 @@ async def test_widely_separated_measurements_masking(client: AsyncClient, engine
     tl_col = int(100.0 / (1000.0 / 79))
     tl_row = int(100.0 / (600.0 / 49))
     assert grid[tl_row][tl_col] is not None
+
+
+@pytest.mark.asyncio
+async def test_collect_live_measurement_success(client: AsyncClient, engineer_auth, test_survey_hierarchy, monkeypatch):
+    """Verify live read-only Wi-Fi collection at operator-selected coordinates."""
+    floor = test_survey_hierarchy["floor"]
+    survey_resp = await client.post(
+        "/api/v1/surveys",
+        json={"floor_id": str(floor.id), "session_name": "Live Collection Session"},
+        headers=engineer_auth["headers"],
+    )
+    assert survey_resp.status_code == 201
+    survey_id = survey_resp.json()["id"]
+
+    # Mock telemetry_collector to return genuine active link
+    mock_status = {
+        "is_connected": True,
+        "connection_state": "connected",
+        "interface_name": "wlp0s20f3",
+        "ssid": "Jain_Student",
+        "bssid": "50:91:E3:75:8F:C3",
+        "frequency_mhz": 5200,
+        "channel": 40,
+        "channel_width_mhz": 160,
+        "band": "5 GHz",
+        "rssi_dbm": -52.0,
+        "signal_quality_pct": 85,
+        "rx_bitrate_mbps": 1200.9,
+        "tx_bitrate_mbps": 1441.3,
+        "security_protocol": "WPA2",
+        "measuring_device": "Backend host (zephyrus)",
+        "hostname": "zephyrus",
+        "ip_address": "192.168.1.105",
+        "default_gateway": "192.168.1.1",
+        "data_provenance": "live_system_probe",
+    }
+    from airgrid.services.survey_service import telemetry_collector
+    monkeypatch.setattr(telemetry_collector, "get_live_connection_status", lambda: mock_status)
+
+    resp = await client.post(
+        f"/api/v1/surveys/{survey_id}/measurements/collect-live",
+        json={"position_x": 250.0, "position_y": 180.0, "notes": "Measured next to reception desk"},
+        headers=engineer_auth["headers"],
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["position_x"] == 250.0
+    assert data["position_y"] == 180.0
+    assert data["rssi_dbm"] == -52.0
+    assert data["network_label"] == "Jain_Student"
+    assert data["ap_reference"] == "50:91:E3:75:8F:C3"
+    assert data["frequency_mhz"] == 5200
+    assert data["channel"] == 40
+    assert data["data_provenance"] == "field_instrument_verified"
+    assert data["measurement_source"] == "live_system_probe"
+    assert data["source_telemetry_snapshot_id"] is not None
+    assert data["rx_bitrate_mbps"] == 1200.9
+    assert data["tx_bitrate_mbps"] == 1441.3
+    assert data["interface_name"] == "wlp0s20f3"
+
+
+@pytest.mark.asyncio
+async def test_collect_live_measurement_disconnected_rejection(client: AsyncClient, engineer_auth, test_survey_hierarchy, monkeypatch):
+    """Verify live capture fails gracefully if Wi-Fi is disconnected."""
+    floor = test_survey_hierarchy["floor"]
+    survey_resp = await client.post(
+        "/api/v1/surveys",
+        json={"floor_id": str(floor.id), "session_name": "Disconnected Session"},
+        headers=engineer_auth["headers"],
+    )
+    survey_id = survey_resp.json()["id"]
+
+    mock_status = {
+        "is_connected": False,
+        "connection_state": "disconnected",
+        "interface_name": "wlp0s20f3",
+        "ssid": None,
+        "rssi_dbm": None,
+    }
+    from airgrid.services.survey_service import telemetry_collector
+    monkeypatch.setattr(telemetry_collector, "get_live_connection_status", lambda: mock_status)
+
+    resp = await client.post(
+        f"/api/v1/surveys/{survey_id}/measurements/collect-live",
+        json={"position_x": 200.0, "position_y": 200.0},
+        headers=engineer_auth["headers"],
+    )
+    assert resp.status_code == 422
+    assert "No active connected Wi-Fi interface detected" in resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_reposition_measurement_with_audit_trail(client: AsyncClient, engineer_auth, test_survey_hierarchy):
+    """Verify operator can correct mistakenly placed measurement coordinates with audit log tracking."""
+    floor = test_survey_hierarchy["floor"]
+    survey_resp = await client.post(
+        "/api/v1/surveys",
+        json={"floor_id": str(floor.id), "session_name": "Reposition Session"},
+        headers=engineer_auth["headers"],
+    )
+    survey_id = survey_resp.json()["id"]
+
+    # Record initial measurement at (150, 150)
+    add_resp = await client.post(
+        f"/api/v1/surveys/{survey_id}/measurements",
+        json={
+            "floor_id": str(floor.id),
+            "position_x": 150.0,
+            "position_y": 150.0,
+            "rssi_dbm": -58.0,
+            "network_label": "AirGrid-Staff",
+        },
+        headers=engineer_auth["headers"],
+    )
+    assert add_resp.status_code == 201
+    meas_id = add_resp.json()["id"]
+
+    # Reposition to (220, 310) with reason
+    repo_resp = await client.patch(
+        f"/api/v1/surveys/{survey_id}/measurements/{meas_id}/reposition",
+        json={
+            "position_x": 220.0,
+            "position_y": 310.0,
+            "reason": "Corrected 3.5m offset to align with structural column",
+        },
+        headers=engineer_auth["headers"],
+    )
+    assert repo_resp.status_code == 200
+    updated = repo_resp.json()
+    assert updated["position_x"] == 220.0
+    assert updated["position_y"] == 310.0
+    assert updated["normalized_x"] == 220.0 / 1000.0
+    assert updated["normalized_y"] == 310.0 / 600.0
+
+    # Verify audit log recorded in database
+    async with AsyncSessionLocal() as session:
+        from airgrid.models.all_models import AuditLog
+        stmt = (
+            select(AuditLog)
+            .where(
+                and_(
+                    AuditLog.action == "survey.measurement_repositioned",
+                    AuditLog.resource_id == str(meas_id),
+                )
+            )
+            .order_by(AuditLog.created_at.desc())
+        )
+        res = await session.execute(stmt)
+        log = res.scalar_one_or_none()
+        assert log is not None
+        assert log.payload["old_position"]["x"] == 150.0
+        assert log.payload["old_position"]["y"] == 150.0
+        assert log.payload["new_position"]["x"] == 220.0
+        assert log.payload["new_position"]["y"] == 310.0
+        assert "column" in log.payload["reason"]
+
+
+@pytest.mark.asyncio
+async def test_heatmap_generation_audit_logging(client: AsyncClient, engineer_auth, test_survey_hierarchy):
+    """Verify POST /heatmap records an audit entry in PostgreSQL."""
+    floor = test_survey_hierarchy["floor"]
+    survey_resp = await client.post(
+        "/api/v1/surveys",
+        json={"floor_id": str(floor.id), "session_name": "Audit Logged Heatmap Session"},
+        headers=engineer_auth["headers"],
+    )
+    survey_id = survey_resp.json()["id"]
+
+    # Place 3 non-collinear points
+    points = [(100.0, 100.0, -42.0), (300.0, 100.0, -56.0), (200.0, 250.0, -68.0)]
+    for x, y, r in points:
+        await client.post(
+            f"/api/v1/surveys/{survey_id}/measurements",
+            json={"floor_id": str(floor.id), "position_x": x, "position_y": y, "rssi_dbm": r, "network_label": "AirGrid-HQ"},
+            headers=engineer_auth["headers"],
+        )
+
+    # Trigger POST heatmap
+    h_resp = await client.post(
+        f"/api/v1/surveys/{survey_id}/heatmap?grid_cols=40&grid_rows=25",
+        headers=engineer_auth["headers"],
+    )
+    assert h_resp.status_code == 200
+
+    # Verify AuditLog in DB
+    async with AsyncSessionLocal() as session:
+        from airgrid.models.all_models import AuditLog
+        stmt = select(AuditLog).where(
+            and_(
+                AuditLog.action == "survey.heatmap_generated",
+                AuditLog.resource_id == str(survey_id),
+            )
+        )
+        res = await session.execute(stmt)
+        log = res.scalar_one_or_none()
+        assert log is not None
+        assert log.payload["sample_count"] == 3
+        assert log.payload["grid_cols"] == 40
+        assert log.payload["grid_rows"] == 25
+
+
+@pytest.mark.asyncio
+async def test_leave_one_out_cross_validation(client: AsyncClient, engineer_auth, test_survey_hierarchy):
+    """Verify Leave-One-Out Cross-Validation (LOOCV) calculates MAE and error distribution."""
+    floor = test_survey_hierarchy["floor"]
+    survey_resp = await client.post(
+        "/api/v1/surveys",
+        json={"floor_id": str(floor.id), "session_name": "Validation Test Session"},
+        headers=engineer_auth["headers"],
+    )
+    survey_id = survey_resp.json()["id"]
+
+    # 5 non-collinear observation points on calibrated floor plan
+    pts = [
+        (150.0, 150.0, -45.0),
+        (350.0, 150.0, -55.0),
+        (550.0, 150.0, -62.0),
+        (250.0, 350.0, -52.0),
+        (450.0, 350.0, -58.0),
+    ]
+    for x, y, r in pts:
+        await client.post(
+            f"/api/v1/surveys/{survey_id}/measurements",
+            json={"floor_id": str(floor.id), "position_x": x, "position_y": y, "rssi_dbm": r, "network_label": "AirGrid-Val"},
+            headers=engineer_auth["headers"],
+        )
+
+    val_resp = await client.get(
+        f"/api/v1/surveys/{survey_id}/validation?network_label=AirGrid-Val",
+        headers=engineer_auth["headers"],
+    )
+    assert val_resp.status_code == 200
+    data = val_resp.json()
+
+    assert data["survey_session_id"] == survey_id
+    assert data["evaluated_samples_count"] == 5
+    assert data["valid_predictions_count"] > 0
+    assert data["mae_db"] is not None
+    assert data["mae_db"] >= 0.0
+    assert data["rmse_db"] is not None
+    assert data["rmse_db"] >= 0.0
+    assert "under_2db" in data["error_distribution"]
+    assert len(data["points"]) == 5
+    for p in data["points"]:
+        assert p["actual_rssi_dbm"] is not None
+        if not p["is_masked"]:
+            assert p["predicted_rssi_dbm"] is not None
+            assert p["absolute_error_db"] is not None
+
