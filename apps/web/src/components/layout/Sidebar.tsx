@@ -7,6 +7,7 @@ import {
   MapPin,
   Gauge,
   Router as RouterIcon,
+  Box,
   Activity,
   Cpu,
   BrainCircuit,
@@ -49,6 +50,7 @@ const navSections: NavSection[] = [
     items: [
       { name: 'Command Center', path: '/dashboard', icon: LayoutDashboard, isImplemented: true },
       { name: 'Campus Manager', path: '/campuses', icon: Building2, isImplemented: true },
+      { name: '3D Campus', path: '/campus-3d', icon: Box, isImplemented: true },
       { name: 'Wi-Fi Heatmaps', path: '/heatmaps', icon: MapPin, isImplemented: true },
       { name: 'Network Speed Test', path: '/speed-test', icon: Gauge, isImplemented: true },
       { name: 'Live Network Monitor', path: '/monitor', icon: Activity, phaseBadge: 'P03' },

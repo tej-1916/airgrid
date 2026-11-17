@@ -416,7 +416,10 @@ async def build_messages_history(
     res = await db.execute(stmt)
     recent = list(reversed(res.scalars().all()))
 
+    private_ok = context_sharing_allowed()
     for msg in recent:
+        if msg.role == "assistant" and not private_ok:
+            continue  # earlier replies may quote private records; never forward them to a non-approved provider
         if msg.role in ("user", "assistant") and msg.status != "error":  # failed turns are not model context
             messages.append({"role": msg.role, "content": msg.content})
 

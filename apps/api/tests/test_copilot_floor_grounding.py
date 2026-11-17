@@ -68,3 +68,21 @@ async def test_private_context_withheld_from_non_loopback_provider_unless_approv
         monkeypatch.setattr(settings, "AIRGRID_AI_API_BASE_URL", url)
         monkeypatch.setattr(settings, "AIRGRID_AI_EXTERNAL_CONTEXT_APPROVED", False)
         assert cs.context_sharing_allowed()
+
+
+@pytest.mark.asyncio
+async def test_history_drops_assistant_turns_for_non_approved_provider(site, monkeypatch):
+    from airgrid.models.all_models import AIChatConversation
+    async with AsyncSessionLocal() as db:
+        conv = AIChatConversation(id=uuid.uuid4(), user_id=site["beta"].id, title="h", model="auto")
+        db.add(conv)
+        await db.flush()
+        db.add_all([AIChatMessage(conversation_id=conv.id, role="user", content="q", status="completed"),
+                    AIChatMessage(conversation_id=conv.id, role="assistant", content="PRIVATE-ROOM-FACT", status="completed")])
+        await db.commit()
+        monkeypatch.setattr(settings, "AIRGRID_AI_API_BASE_URL", "https://provider.example.com/v1")
+        monkeypatch.setattr(settings, "AIRGRID_AI_EXTERNAL_CONTEXT_APPROVED", False)
+        withheld = await cs.build_messages_history(db, conv, "sys")
+        assert all("PRIVATE-ROOM-FACT" not in m["content"] for m in withheld)
+        monkeypatch.setattr(settings, "AIRGRID_AI_EXTERNAL_CONTEXT_APPROVED", True)
+        assert any("PRIVATE-ROOM-FACT" in m["content"] for m in await cs.build_messages_history(db, conv, "sys"))
