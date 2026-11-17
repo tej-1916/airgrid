@@ -164,6 +164,25 @@ An automated review of an earlier push reported authorization problems. Each was
 6. **AI Analyst / Copilot** (needs an AI key): ask a question and open the cited records; try the Copilot and use **Retry** after stopping the provider.
 7. Sign in as a second, unassigned user to see that other campuses' data, history and activity are not visible.
 
+## Post-submission additions (development branch, not part of the `v1.0-submission` checkpoint)
+
+The `v1.0-submission` tag (17 November 2026) is unchanged. Later work on branch `feat/campus-3d-wifi-copilot`:
+
+| Addition | Status |
+|---|---|
+| **3D Campus page** (`/campus-3d`): three.js viewer for the Blender Mega Campus GLB, orbit/zoom/pan, reset camera, whole building or single floor, floor show/hide, room picking, room panel, 2D plan switch | Implemented; browser-verified (16/16 checks) |
+| **Room coverage**: per-room estimate from the existing IDW heatmap engine, coloured good / fair / weak / unknown. Not a radio-propagation simulation | Implemented; unit and API tests |
+| **Blender to plan mapping**: `px = W/2 + x*ppm`, `py = H/2 - y*ppm`; glTF `(x, y, z) = (bx, bz, -by)` | Tested with known coordinates |
+| **Floor-grounded Copilot**: choose a floor in 3D, ask a question; answers cite room records and state when data is synthetic. Floor authorization runs before the question is stored and before any provider call, on regular and streaming endpoints | Implemented; tests + browser check (provider needed 2 retries) |
+| **Data-sharing policy**: private records go only to a loopback gateway unless `AIRGRID_AI_EXTERNAL_CONTEXT_APPROVED=true`; assistant history is withheld otherwise | Implemented; tested |
+| **Synthetic demo seed**: `python -m airgrid.demo_seed [--plans-dir DIR]` creates a labelled demo campus (`data_provenance=controlled_test_import`, note "SYNTHETIC DEMO") | Implemented; tested |
+
+**The Blender files are not in this repository.** Set `AIRGRID_CAMPUS_MODEL_DIR` to a folder containing `airgrid_mega_campus.glb` and `campus_geometry.json`; without them the page reports "3D model unavailable".
+
+Demo workflow: run migrations, create an admin (`airgrid-admin bootstrap-admin`), run the seed, start the API and web app, open **3D Campus**, select a floor, click a room, then **Ask the Copilot**. Browser checks: `docs/verification/verify_v1x_campus3d.cjs`, `verify_v1x_copilot.cjs`, `verify_v1x_sweep.cjs` (48 route/width combinations passed with no API or page errors).
+
+Limits: all coverage shown comes from synthetic demo points, so no field accuracy is claimed; the free AI provider is intermittently slow or unavailable; wall attenuation in the 3D model is not used for prediction; no public deployment exists.
+
 ## Known limitations
 
 - Items listed under *Implemented, with known limitations* above apply.
