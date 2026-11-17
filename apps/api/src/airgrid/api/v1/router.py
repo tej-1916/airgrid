@@ -13,6 +13,7 @@ from airgrid.api.v1.endpoints import (
     optimization,
     collectors,
     retention,
+    copilot,
 )
 
 api_router = APIRouter()
@@ -30,3 +31,4 @@ api_router.include_router(optimization.router)
 api_router.include_router(collectors.router)
 api_router.include_router(retention.router)
 api_router.include_router(ai.router, prefix="/ai")
+api_router.include_router(copilot.router, prefix="/ai")

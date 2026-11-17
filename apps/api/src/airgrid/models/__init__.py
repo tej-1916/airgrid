@@ -28,6 +28,8 @@ from airgrid.models.all_models import (
     NetworkTelemetrySnapshot,
     NetworkDiagnosticFinding,
     CampusMembership,
+    AIChatConversation,
+    AIChatMessage,
 )
 
 __all__ = [
@@ -39,6 +41,8 @@ __all__ = [
     "AuditLog",
     "Campus",
     "CampusMembership",
+    "AIChatConversation",
+    "AIChatMessage",
     "Building",
     "Floor",
     "FloorPlanAsset",

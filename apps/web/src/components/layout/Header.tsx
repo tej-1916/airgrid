@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { LogOut, Menu, Building, CheckCircle2, AlertCircle } from 'lucide-react';
+import { LogOut, Menu, Building, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useCampus } from '../../context/CampusContext';
+import { useCopilotDrawer } from '../../context/CopilotDrawerContext';
 
 interface HeaderProps {
   onToggleMobileMenu: () => void;
@@ -20,6 +21,7 @@ const routeTitleMap: Record<string, string> = {
   '/ai-diagnostics': 'Network Diagnostics',
   '/diagnostics': 'Network Diagnostics',
   '/ai-analyst': 'AirGrid Analyst',
+  '/ai-copilot': 'AirGrid AI Copilot',
   '/optimization': 'Network Optimization Studio',
   '/ai-models': 'AI Model Control Center',
   '/ml-lab': 'ML Prediction Lab',
@@ -34,6 +36,7 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu }) => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { campuses, selectedCampusId, setSelectedCampusId } = useCampus();
+  const { toggleDrawer } = useCopilotDrawer();
   const title = routeTitleMap[location.pathname] || 'AirGrid Console';
   const [apiOnline, setApiOnline] = useState<boolean | null>(null);
 
@@ -124,8 +127,18 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu }) => {
 
         {/* Platform Status Badge */}
         <span className="hidden sm:inline-flex text-[11px] font-mono px-2 py-0.5 rounded bg-[#ECECE8] text-[#0B0B0D] font-medium border border-[#D9DBDE]" title="Full-Stack Campus Intelligence & AI Gateway">
-          Operational · 16 Routes Active
+          Operational · 17 Routes Active
         </span>
+
+        {/* AI Copilot Quick Drawer Trigger */}
+        <button
+          onClick={toggleDrawer}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-[#BE6B37]/15 text-[#BE6B37] hover:bg-[#BE6B37]/25 border border-[#BE6B37]/40 transition-colors shadow-2xs"
+          title="Open AirGrid AI Copilot"
+        >
+          <Sparkles className="w-3.5 h-3.5 text-[#BE6B37]" />
+          <span>Copilot</span>
+        </button>
 
         {/* User Badge */}
         <div className="flex items-center gap-2 pl-2 border-l border-[#D9DBDE]">

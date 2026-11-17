@@ -15,6 +15,7 @@ import { DevicesPage } from './pages/DevicesPage';
 import { MonitorPage } from './pages/MonitorPage';
 import { NetworkDiagnosticsPage } from './pages/NetworkDiagnosticsPage';
 import { AIAnalystPage } from './pages/AIAnalystPage';
+import { AICopilotPage } from './pages/AICopilotPage';
 import { AIModelsPage } from './pages/AIModelsPage';
 import { MLLabPage } from './pages/MLLabPage';
 import { APOptimizationPage } from './pages/APOptimizationPage';
@@ -61,6 +62,8 @@ export const router = createBrowserRouter([
           { path: 'devices', element: <DevicesPage /> },
           { path: 'monitor', element: <MonitorPage /> },
           { path: 'ai-analyst', element: <AIAnalystPage /> },
+          { path: 'ai-copilot', element: <AICopilotPage /> },
+          { path: 'copilot', element: <Navigate to="/ai-copilot" replace /> },
           { path: 'network-tools', element: <Navigate to="/diagnostics" replace /> },
           { path: 'diagnostics', element: <NetworkDiagnosticsPage /> },
           { path: 'network-diagnostics', element: <Navigate to="/diagnostics" replace /> },

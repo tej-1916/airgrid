@@ -40,6 +40,7 @@ class User(Base, TimestampMixin):
     sessions: Mapped[List["UserSession"]] = relationship("UserSession", back_populates="user", cascade="all, delete-orphan")
     speed_tests: Mapped[List["InternetSpeedTest"]] = relationship("InternetSpeedTest", back_populates="user")
     campus_memberships: Mapped[List["CampusMembership"]] = relationship("CampusMembership", back_populates="user", cascade="all, delete-orphan")
+    chat_conversations: Mapped[List["AIChatConversation"]] = relationship("AIChatConversation", back_populates="user", cascade="all, delete-orphan")
 
 
 # 1.1 User Sessions
@@ -800,4 +801,53 @@ class CampusMembership(Base):
 
     campus: Mapped["Campus"] = relationship("Campus", back_populates="memberships")
     user: Mapped["User"] = relationship("User", back_populates="campus_memberships")
+
+
+# 30. AI Copilot Conversations
+class AIChatConversation(Base, TimestampMixin):
+    __tablename__ = "ai_chat_conversations"
+    __table_args__ = (
+        Index("ix_ai_chat_conversations_user_id", "user_id"),
+        Index("ix_ai_chat_conversations_updated_at", "updated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title: Mapped[str] = mapped_column(String(150), default="New Conversation", nullable=False)
+    model: Mapped[str] = mapped_column(String(100), default="auto", nullable=False)
+    campus_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("campuses.id", ondelete="SET NULL"), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+    user: Mapped["User"] = relationship("User", back_populates="chat_conversations")
+    campus: Mapped[Optional["Campus"]] = relationship("Campus")
+    messages: Mapped[List["AIChatMessage"]] = relationship(
+        "AIChatMessage", back_populates="conversation", cascade="all, delete-orphan", order_by="AIChatMessage.created_at"
+    )
+
+
+# 31. AI Copilot Messages
+class AIChatMessage(Base):
+    __tablename__ = "ai_chat_messages"
+    __table_args__ = (
+        Index("ix_ai_chat_messages_conversation_id", "conversation_id"),
+        Index("ix_ai_chat_messages_created_at", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    conversation_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("ai_chat_conversations.id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # "user", "assistant", "system"
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    model_used: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    tokens_prompt: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    tokens_completion: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    duration_ms: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    citations: Mapped[Optional[list]] = mapped_column(JSON, default=list, nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="completed", nullable=False)  # "completed", "error", "cancelled"
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    conversation: Mapped["AIChatConversation"] = relationship("AIChatConversation", back_populates="messages")
+
 

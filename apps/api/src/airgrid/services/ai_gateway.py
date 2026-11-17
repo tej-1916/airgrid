@@ -246,5 +246,238 @@ class AIGatewayService:
         except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError, AttributeError):
             return result('failed', 'Provider unavailable or returned an invalid response.')
 
+    async def generate_chat(
+        self,
+        messages: list[dict],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ) -> dict:
+        """Multi-turn OpenAI-compatible chat generation with safety checks and redaction."""
+        started = time.perf_counter()
+        requested = model or self.active_model
+
+        if not self.is_configured():
+            return {
+                "ok": False,
+                "error": "AI Gateway is disabled or unconfigured.",
+                "model": requested,
+                "duration_ms": 0,
+            }
+
+        # Rate limiting
+        now = time.monotonic()
+        while self._requests and self._requests[0] <= now - 60:
+            self._requests.popleft()
+        if len(self._requests) >= 20:  # Allow up to 20 chat requests/min
+            return {
+                "ok": False,
+                "error": "Rate limit exceeded (max 20 chat queries per minute). Please wait a moment.",
+                "model": requested,
+                "duration_ms": 0,
+            }
+        self._requests.append(now)
+
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        payload = {
+            "model": requested,
+            "messages": messages,
+            "temperature": temperature if temperature is not None else settings.AIRGRID_AI_TEMPERATURE,
+            "max_tokens": min(max_tokens or 1024, 2048),
+        }
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
+                response = await client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self.last_latency_ms = duration_ms
+
+            if response.status_code != 200:
+                self.last_failure = f"HTTP {response.status_code}"
+                return {
+                    "ok": False,
+                    "error": f"Provider HTTP {response.status_code}",
+                    "model": requested,
+                    "duration_ms": duration_ms,
+                }
+
+            data = response.json()
+            choices = data.get("choices", [])
+            if not choices or "message" not in choices[0]:
+                return {
+                    "ok": False,
+                    "error": "Invalid provider response format.",
+                    "model": requested,
+                    "duration_ms": duration_ms,
+                }
+
+            content = choices[0]["message"].get("content", "")
+            actual_model = data.get("model", requested)
+            usage = data.get("usage", {})
+
+            if self.api_key:
+                content = content.replace(self.api_key, "[REDACTED]")
+                if isinstance(actual_model, str):
+                    actual_model = actual_model.replace(self.api_key, "[REDACTED]")
+
+            self.last_success = datetime.now(timezone.utc).isoformat()
+            return {
+                "ok": True,
+                "content": content,
+                "model": actual_model,
+                "requested_model": requested,
+                "duration_ms": duration_ms,
+                "tokens_prompt": usage.get("prompt_tokens", 0),
+                "tokens_completion": usage.get("completion_tokens", 0),
+            }
+        except httpx.TimeoutException:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self.last_failure = "Provider request timed out"
+            return {
+                "ok": False,
+                "error": "Request to AI Gateway timed out.",
+                "model": requested,
+                "duration_ms": duration_ms,
+            }
+        except Exception as e:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self.last_failure = str(e)
+            return {
+                "ok": False,
+                "error": "Provider unavailable or communication error.",
+                "model": requested,
+                "duration_ms": duration_ms,
+            }
+
+    async def generate_chat_stream(
+        self,
+        messages: list[dict],
+        model: Optional[str] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+    ):
+        """Async generator streaming OpenAI-compatible chat chunks with automatic non-streaming fallback."""
+        import json as pyjson
+
+        started = time.perf_counter()
+        requested = model or self.active_model
+
+        if not self.is_configured():
+            yield {
+                "type": "error",
+                "error": "AI Gateway is disabled or unconfigured.",
+                "model": requested,
+            }
+            return
+
+        # Rate limiting
+        now = time.monotonic()
+        while self._requests and self._requests[0] <= now - 60:
+            self._requests.popleft()
+        if len(self._requests) >= 20:
+            yield {
+                "type": "error",
+                "error": "Rate limit exceeded (max 20 chat queries per minute). Please wait a moment.",
+                "model": requested,
+            }
+            return
+        self._requests.append(now)
+
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
+        payload = {
+            "model": requested,
+            "messages": messages,
+            "temperature": temperature if temperature is not None else settings.AIRGRID_AI_TEMPERATURE,
+            "max_tokens": min(max_tokens or 1024, 2048),
+            "stream": True,
+        }
+
+        full_content = []
+        actual_model = requested
+        stream_successful = False
+
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
+                async with client.stream(
+                    "POST", f"{self.base_url}/chat/completions", headers=headers, json=payload
+                ) as response:
+                    if response.status_code == 200:
+                        async for raw_line in response.aiter_lines():
+                            line = raw_line.strip()
+                            if not line:
+                                continue
+                            if line == "data: [DONE]":
+                                break
+                            if line.startswith("data: "):
+                                try:
+                                    chunk = pyjson.loads(line[6:])
+                                    if "model" in chunk and chunk["model"]:
+                                        actual_model = chunk["model"]
+                                        if self.api_key:
+                                            actual_model = actual_model.replace(self.api_key, "[REDACTED]")
+                                    choices = chunk.get("choices", [])
+                                    if choices:
+                                        delta = choices[0].get("delta", {})
+                                        content_piece = delta.get("content", "")
+                                        if content_piece:
+                                            if self.api_key:
+                                                content_piece = content_piece.replace(self.api_key, "[REDACTED]")
+                                            full_content.append(content_piece)
+                                            stream_successful = True
+                                            yield {
+                                                "type": "chunk",
+                                                "content": content_piece,
+                                                "model": actual_model,
+                                            }
+                                except Exception:
+                                    continue
+                    else:
+                        # Non-200 streaming response, will trigger fallback below
+                        pass
+        except Exception:
+            # Streaming failed or timed out
+            pass
+
+        # If streaming yielded content, finish with "done"
+        if stream_successful and full_content:
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            self.last_latency_ms = duration_ms
+            self.last_success = datetime.now(timezone.utc).isoformat()
+            yield {
+                "type": "done",
+                "content": "".join(full_content),
+                "model": actual_model,
+                "requested_model": requested,
+                "duration_ms": duration_ms,
+            }
+            return
+
+        # Fallback to non-streaming execution if streaming failed or yielded no tokens
+        fallback_res = await self.generate_chat(
+            messages=messages, model=requested, temperature=temperature, max_tokens=max_tokens
+        )
+        if fallback_res.get("ok"):
+            text = fallback_res.get("content", "")
+            reported_model = fallback_res.get("model", requested)
+            # Yield single full chunk then done
+            yield {
+                "type": "chunk",
+                "content": text,
+                "model": reported_model,
+            }
+            yield {
+                "type": "done",
+                "content": text,
+                "model": reported_model,
+                "requested_model": requested,
+                "duration_ms": fallback_res.get("duration_ms", 0),
+            }
+        else:
+            yield {
+                "type": "error",
+                "error": fallback_res.get("error", "Unable to complete AI response."),
+                "model": requested,
+            }
+
 
 ai_gateway = AIGatewayService()

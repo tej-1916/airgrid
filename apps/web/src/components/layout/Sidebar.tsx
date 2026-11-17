@@ -19,6 +19,7 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
@@ -64,6 +65,7 @@ const navSections: NavSection[] = [
   {
     title: 'Intelligence',
     items: [
+      { name: 'AI Copilot', path: '/ai-copilot', icon: Sparkles, phaseBadge: 'Live', isImplemented: true },
       { name: 'Network Diagnostics', path: '/diagnostics', icon: Activity, isImplemented: true },
       { name: 'AirGrid Analyst', path: '/ai-analyst', icon: BrainCircuit, isImplemented: true },
       { name: 'AI Model Control', path: '/ai-models', icon: Cpu, phaseBadge: 'P07' },
