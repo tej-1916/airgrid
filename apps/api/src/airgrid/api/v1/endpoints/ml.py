@@ -91,7 +91,7 @@ async def list_models(
     """Lists trained spatial models and their evaluation metrics."""
     if floor_id:
         await campus_service.get_floor_by_id(db, floor_id, current_user=user)
-    return await MLService.get_models(db, floor_id)
+    return await MLService.get_models(db, floor_id, user)
 
 
 @router.get("/models/{model_id}", response_model=MLModelResponse)
@@ -150,6 +150,7 @@ async def get_prediction_map(
     - Enforces spatial extrapolation boundaries (convex hull masking)
     - Compares ML predicted RSSI against Phase 04 IDW baseline and computes delta difference
     """
+    await MLService.authorize_model_access(db, user, model_id)
     return await MLService.get_prediction_map(
         db,
         model_id,

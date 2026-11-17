@@ -75,6 +75,36 @@ class GatewayAnswer(BaseModel):
     citations: list[str] = Field(min_length=1, max_length=20)
 
 
+from contextvars import ContextVar  # noqa: E402
+
+# Evidence scope for the current request: (authorized campus ids or None for administrators, user id).
+# Default is deny: if authorize_scope() was not called, telemetry/speed-test evidence queries return nothing.
+_SCOPE: ContextVar[tuple] = ContextVar("analyst_scope", default=((), None))
+
+
+async def authorize_scope(db: AsyncSession, user: User, req) -> None:
+    """Validates the requested floor/collector against the user's campuses and fixes the evidence scope."""
+    from airgrid.models.all_models import NetworkCollector
+    from airgrid.services.campus_service import (
+        get_authorized_campus_ids, require_floor_access, require_owned_or_campus_access)
+    campuses = await get_authorized_campus_ids(db, user)  # None => administrator
+    _SCOPE.set((None if campuses is None else tuple(campuses), user.id))
+    if req.floor_id:
+        await require_floor_access(db, user, req.floor_id)
+    if req.collector_id:
+        collector = await db.get(NetworkCollector, req.collector_id)
+        if not collector:
+            raise HTTPException(status_code=404, detail="Collector not found.")
+        await require_owned_or_campus_access(db, user, collector.campus_id, None)
+
+
+def _scoped(q, model):
+    from airgrid.services.campus_service import scope_filter
+    campuses, uid = _SCOPE.get()
+    pred = scope_filter(model, None if campuses is None else list(campuses), uid)
+    return q if pred is None else q.where(pred)
+
+
 def _utc(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
 
@@ -212,6 +242,7 @@ async def telemetry(db: AsyncSession, req, since: datetime) -> list[NetworkTelem
         q = q.where(NetworkTelemetrySnapshot.floor_id == req.floor_id)
     if getattr(req, "network_label", None):
         q = q.where(NetworkTelemetrySnapshot.ssid == req.network_label)
+    q = _scoped(q, NetworkTelemetrySnapshot)
     rows = list((await db.execute(q.order_by(desc(NetworkTelemetrySnapshot.collected_at)).limit(2000))).scalars())
     return sorted(rows, key=lambda r: _utc(r.collected_at))
 
@@ -220,6 +251,7 @@ async def speed_tests(db: AsyncSession, req, since: datetime) -> list[InternetSp
     q = select(InternetSpeedTest).where(InternetSpeedTest.executed_at >= since, InternetSpeedTest.status == "completed")
     if req.floor_id:
         q = q.where(InternetSpeedTest.floor_id == req.floor_id)
+    q = _scoped(q, InternetSpeedTest)
     return list((await db.execute(q.order_by(InternetSpeedTest.executed_at).limit(500))).scalars())
 
 
@@ -441,6 +473,7 @@ def preview(req: AskRequest, local: dict) -> dict:
 
 
 async def ask(db: AsyncSession, req: AskRequest, user: User) -> dict:
+    await authorize_scope(db, user, req)
     local = await local_answer(db, req)
     result = {**local, "mode": "deterministic", "gateway_status": "not_requested", "provider_reported_model": None,
               "local_answer": local["answer"]}
@@ -476,6 +509,7 @@ async def ask(db: AsyncSession, req: AskRequest, user: User) -> dict:
 
 
 async def compare(db: AsyncSession, req: CompareRequest, user: User) -> dict:
+    await authorize_scope(db, user, req)
     windows = [(_utc(req.earlier_start), _utc(req.earlier_end)), (_utc(req.later_start), _utc(req.later_end))]
     if any(end <= start for start, end in windows) or windows[0][1] > windows[1][0]:
         raise HTTPException(status_code=422, detail="Windows must be non-empty and the earlier window must end before the later one starts.")
@@ -515,17 +549,19 @@ def history_row(r: AnalysisRecord, full: bool = False) -> dict:
     return row
 
 
-async def list_history(db: AsyncSession, kind: Optional[str], limit: int) -> list[dict]:
+async def list_history(db: AsyncSession, kind: Optional[str], limit: int, user: User) -> list[dict]:
     q = select(AnalysisRecord).options(selectinload(AnalysisRecord.user)).order_by(desc(AnalysisRecord.created_at)).limit(limit)
+    if user.role != "administrator":  # records are private to the operator who created them
+        q = q.where(AnalysisRecord.user_id == user.id)
     if kind:
         q = q.where(AnalysisRecord.kind == kind)
     return [history_row(r) for r in (await db.execute(q)).scalars()]
 
 
-async def get_history(db: AsyncSession, record_id: uuid.UUID) -> dict:
+async def get_history(db: AsyncSession, record_id: uuid.UUID, user: User) -> dict:
     r = (await db.execute(select(AnalysisRecord).options(selectinload(AnalysisRecord.user))
                           .where(AnalysisRecord.id == record_id))).scalar_one_or_none()
-    if not r:
+    if not r or (user.role != "administrator" and r.user_id != user.id):  # 404, not 403: do not confirm existence
         raise HTTPException(status_code=404, detail="Analysis record not found.")
     return history_row(r, full=True)
 

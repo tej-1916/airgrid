@@ -99,8 +99,9 @@ async def _require_survey_access(db: AsyncSession, survey_id: uuid.UUID, user: U
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Survey session '{survey_id}' not found.",
         )
-    if user.role != "administrator" and session.campus_id:
-        await campus_service.require_campus_access(db, user, session.campus_id)
+    if user.role != "administrator":
+        campus_id = session.campus_id or await campus_service.get_campus_id_for_floor(db, session.floor_id)
+        await campus_service.require_owned_or_campus_access(db, user, campus_id, None)
     return session
 
 
@@ -181,9 +182,11 @@ async def compare_surveys(
     session1: uuid.UUID = Query(..., description="First survey session UUID"),
     session2: uuid.UUID = Query(..., description="Second survey session UUID"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
     """Generates a delta comparison between two survey sessions conducted on the same floor."""
+    await _require_survey_access(db, session1, current_user)
+    await _require_survey_access(db, session2, current_user)
     return await SurveyService.compare_surveys(db, session1, session2)
 
 

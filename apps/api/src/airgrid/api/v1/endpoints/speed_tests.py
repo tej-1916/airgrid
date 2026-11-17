@@ -6,6 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from airgrid.core.config import settings
 from airgrid.core.database import get_db
 from airgrid.api.deps import require_authenticated, verify_csrf
+from airgrid.services import campus_service
+from airgrid.models.all_models import InternetSpeedTest
 from airgrid.models.all_models import User, InternetSpeedTest
 from airgrid.schemas.speed_test import (
     SpeedTestCreate,
@@ -107,13 +109,15 @@ async def list_speed_tests(
     status: Optional[str] = Query(None, description="Filter by status (completed/aborted/failed)"),
     provider: Optional[str] = Query(None, description="Filter by provider engine"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
     """
     Retrieve paginated historical speed test measurements.
     Supports filtering by campus, building, floor, status, and provider.
     """
+    scope = campus_service.scope_filter(InternetSpeedTest, await campus_service.get_authorized_campus_ids(db, current_user), current_user.id)
     total, items = await speed_test_service.list_speed_tests(
+        scope=scope,
         db=db,
         skip=skip,
         limit=limit,
@@ -139,12 +143,13 @@ async def list_speed_tests(
 async def get_speed_test_stats(
     campus_id: Optional[uuid.UUID] = Query(None, description="Optional campus filter"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
     """
     Compute aggregated statistics across historical speed tests (averages, maximums, counts).
     """
-    stats = await speed_test_service.get_stats_summary(db=db, campus_id=campus_id)
+    scope = campus_service.scope_filter(InternetSpeedTest, await campus_service.get_authorized_campus_ids(db, current_user), current_user.id)
+    stats = await speed_test_service.get_stats_summary(db=db, campus_id=campus_id, scope=scope)
     return SpeedTestStatsResponse(**stats)
 
 
@@ -175,10 +180,11 @@ async def get_speed_test_config(
 async def get_speed_test(
     test_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(require_authenticated),
+    current_user: User = Depends(require_authenticated),
 ):
     """
     Retrieve full details and metadata for a specific speed test record.
     """
     record = await speed_test_service.get_speed_test_by_id(db, test_id)
+    await campus_service.require_owned_or_campus_access(db, current_user, record.campus_id, record.user_id)
     return _format_speed_test_response(record)

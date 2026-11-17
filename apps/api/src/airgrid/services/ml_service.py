@@ -793,9 +793,20 @@ class MLService:
         )
 
     @staticmethod
+    async def authorize_model_access(db: AsyncSession, user: User, model_id: uuid.UUID) -> MLModel:
+        """Loads a model and requires access to its floor's campus (administrators always pass)."""
+        from airgrid.services.campus_service import require_floor_access
+        m = await db.get(MLModel, model_id)
+        if not m:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"ML Model with ID '{model_id}' not found.")
+        await require_floor_access(db, user, m.floor_id)
+        return m
+
+    @staticmethod
     async def get_models(
         db: AsyncSession,
         floor_id: Optional[uuid.UUID] = None,
+        user: Optional[User] = None,
     ) -> List[MLModelResponse]:
         """Retrieves list of trained ML models and their evaluation metrics."""
         stmt = (
@@ -805,6 +816,12 @@ class MLService:
         )
         if floor_id:
             stmt = stmt.where(MLModel.floor_id == floor_id)
+        if user and user.role != "administrator":  # never list models outside the user's campuses
+            from airgrid.models.all_models import Building, Floor
+            from airgrid.services.campus_service import get_authorized_campus_ids
+            allowed = select(Floor.id).join(Building, Floor.building_id == Building.id).where(
+                Building.campus_id.in_(await get_authorized_campus_ids(db, user)))
+            stmt = stmt.where(MLModel.floor_id.in_(allowed))
 
         res = await db.execute(stmt)
         models = res.scalars().all()
@@ -930,12 +947,7 @@ class MLService:
         model_id: uuid.UUID,
     ) -> MLModelResponse:
         """Promotes a trained model to champion status on its floor and network."""
-        m = await db.get(MLModel, model_id)
-        if not m:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"ML Model with ID '{model_id}' not found.",
-            )
+        m = await MLService.authorize_model_access(db, user, model_id)
 
         # Demote existing champions on same floor & network
         stmt_demote = (
@@ -974,12 +986,7 @@ class MLService:
         model_id: uuid.UUID,
     ) -> None:
         """Deletes an ML model, its evaluations, and removes its joblib artifact securely."""
-        m = await db.get(MLModel, model_id)
-        if not m:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"ML Model with ID '{model_id}' not found.",
-            )
+        m = await MLService.authorize_model_access(db, user, model_id)
 
         # Remove artifact file securely
         if m.artifact_path:

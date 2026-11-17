@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from airgrid.core.database import AsyncSessionLocal
 from airgrid.core.security import hash_password
-from airgrid.models.all_models import User, Campus, Building, Floor, InternetSpeedTest
+from airgrid.models.all_models import User, Campus, CampusMembership, Building, Floor, InternetSpeedTest
 
 
 @pytest.fixture
@@ -51,7 +51,7 @@ async def operator_auth(client: AsyncClient):
 
 
 @pytest.fixture
-async def sample_campus_hierarchy():
+async def sample_campus_hierarchy(operator_auth):
     """Sets up a test campus, building, and floor hierarchy for spatial association."""
     async with AsyncSessionLocal() as session:
         campus = Campus(
@@ -61,6 +61,8 @@ async def sample_campus_hierarchy():
         )
         session.add(campus)
         await session.flush()
+        # the measurement operator belongs to this campus (speed-test writes/reads are campus-scoped)
+        session.add(CampusMembership(campus_id=campus.id, user_id=operator_auth["user"].id))
 
         building = Building(
             campus_id=campus.id,
@@ -315,6 +317,10 @@ async def test_speed_test_listing_and_filtering(
 async def test_speed_test_stats_summary(client: AsyncClient, operator_auth: dict):
     """Verify aggregated summary statistics calculation."""
     client.cookies.update(operator_auth["cookies"])
+    # stats are scoped to what the operator may see, so record one of their own first
+    created = await client.post("/api/v1/speed-tests", headers=operator_auth["headers"], json={
+        "provider_engine": "cloudflare", "status": "completed", "download_mbps": 10.0, "upload_mbps": 5.0, "latency_ms": 20.0})
+    assert created.status_code == 201
 
     resp = await client.get("/api/v1/speed-tests/stats/summary")
     assert resp.status_code == 200

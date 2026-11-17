@@ -73,6 +73,9 @@ class SpeedTestService:
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail=f"Campus with ID {resolved_campus_id} not found",
                 )
+            # Writes must be attributed only to a campus the caller belongs to (administrators always pass).
+            from airgrid.services.campus_service import require_campus_access
+            await require_campus_access(db, current_user, resolved_campus_id)
 
         # 4. Construct record
         ua = (client_user_agent[:512]) if client_user_agent else None
@@ -160,9 +163,12 @@ class SpeedTestService:
         floor_id: Optional[uuid.UUID] = None,
         status_filter: Optional[str] = None,
         provider_filter: Optional[str] = None,
+        scope=None,
     ) -> Tuple[int, List[InternetSpeedTest]]:
         """List historical speed test measurements with optional filtering."""
         base_query = select(InternetSpeedTest)
+        if scope is not None:
+            base_query = base_query.where(scope)
 
         if campus_id:
             base_query = base_query.where(InternetSpeedTest.campus_id == campus_id)
@@ -201,9 +207,10 @@ class SpeedTestService:
         self,
         db: AsyncSession,
         campus_id: Optional[uuid.UUID] = None,
+        scope=None,
     ) -> Dict[str, Any]:
         """Compute aggregated statistics across historical test measurements."""
-        base_filter = []
+        base_filter = [] if scope is None else [scope]
         if campus_id:
             base_filter.append(InternetSpeedTest.campus_id == campus_id)
 

@@ -123,9 +123,9 @@ async def list_collectors(db: AsyncSession, user: User | None = None) -> list[Ne
 
 async def list_observations(db: AsyncSession, collector_id: uuid.UUID, limit: int, user: User | None = None) -> list[NetworkTelemetrySnapshot]:
     collector = await _get_or_404(db, collector_id)
-    if user and user.role != "administrator" and collector.campus_id:
-        from airgrid.services.campus_service import require_campus_access
-        await require_campus_access(db, user, collector.campus_id)
+    if user:  # collectors have no owner: a campus-less collector is administrator-only
+        from airgrid.services.campus_service import require_owned_or_campus_access
+        await require_owned_or_campus_access(db, user, collector.campus_id, None)
     result = await db.execute(select(NetworkTelemetrySnapshot)
                               .where(NetworkTelemetrySnapshot.collector_id == collector_id)
                               .order_by(desc(NetworkTelemetrySnapshot.collected_at)).limit(limit))

@@ -101,6 +101,41 @@ async def require_floor_access(db: AsyncSession, user: User, floor_id: uuid.UUID
     return campus_id
 
 
+async def require_owned_or_campus_access(db: AsyncSession, user: User, campus_id: Optional[uuid.UUID],
+                                         owner_id: Optional[uuid.UUID]) -> None:
+    """Deny-by-default record access. Administrators pass; campus-scoped records need campus membership;
+    campus-less records are visible only to their owner. Anything else (including unknown owner) is 403."""
+    if user.role == "administrator":
+        return
+    if campus_id:
+        await require_campus_access(db, user, campus_id)
+        return
+    if owner_id and owner_id == user.id:
+        return
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Forbidden: ownership of this record cannot be established.")
+
+
+def scope_filter(model, authorized_campus_ids: Optional[List[uuid.UUID]], user_id: Optional[uuid.UUID]):
+    """SQL predicate equivalent of require_owned_or_campus_access for list queries (None = administrator).
+
+    A row is visible when its campus is authorized, when it has no campus but its floor belongs to an authorized
+    campus, or when it has neither and the user owns it. No authorized campus and no user id matches nothing.
+    """
+    from sqlalchemy import false, or_
+    if authorized_campus_ids is None:
+        return None
+    conds = []
+    if authorized_campus_ids:
+        conds.append(model.campus_id.in_(authorized_campus_ids))
+        if hasattr(model, "floor_id"):
+            floors = select(Floor.id).join(Building, Floor.building_id == Building.id).where(
+                Building.campus_id.in_(authorized_campus_ids))
+            conds.append(model.campus_id.is_(None) & model.floor_id.in_(floors))
+    if user_id:
+        conds.append(model.campus_id.is_(None) & (model.user_id == user_id))
+    return or_(*conds) if conds else false()
+
 
 # =========================================================================
 # Campus Operations

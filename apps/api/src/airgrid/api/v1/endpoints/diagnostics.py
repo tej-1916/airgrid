@@ -180,15 +180,14 @@ async def get_diagnostic_report(
     current_user: User = Depends(require_authenticated),
 ):
     """Retrieves full diagnostic findings and telemetry snapshot for a specific report."""
-    from airgrid.services.campus_service import require_campus_access
+    from airgrid.services.campus_service import require_owned_or_campus_access
     report = await diagnostic_service.get_report_by_id(db=db, report_id=report_id)
     if not report:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Diagnostic report not found",
         )
-    if report.campus_id:
-        await require_campus_access(db, current_user, report.campus_id)
+    await require_owned_or_campus_access(db, current_user, report.campus_id, report.user_id)
     return report
 
 
@@ -203,15 +202,14 @@ async def delete_diagnostic_report(
     _: None = Depends(verify_csrf),
 ):
     """Deletes a diagnostic report (Technician or Admin only)."""
-    from airgrid.services.campus_service import require_campus_access
+    from airgrid.services.campus_service import require_owned_or_campus_access
     report = await diagnostic_service.get_report_by_id(db=db, report_id=report_id)
     if not report:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Diagnostic report not found",
         )
-    if report.campus_id:
-        await require_campus_access(db, current_user, report.campus_id)
+    await require_owned_or_campus_access(db, current_user, report.campus_id, report.user_id)
     await diagnostic_service.delete_report(db=db, report_id=report_id, current_user=current_user)
     return {"ok": True, "message": "Diagnostic report deleted successfully"}
 
@@ -234,10 +232,9 @@ async def get_telemetry_snapshot(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_authenticated),
 ):
-    from airgrid.services.campus_service import require_campus_access
+    from airgrid.services.campus_service import require_owned_or_campus_access
     snapshot = await db.get(NetworkTelemetrySnapshot, snapshot_id)
     if not snapshot:
         raise HTTPException(status_code=404, detail="Telemetry snapshot not found.")
-    if snapshot.campus_id:
-        await require_campus_access(db, current_user, snapshot.campus_id)
+    await require_owned_or_campus_access(db, current_user, snapshot.campus_id, snapshot.user_id)
     return snapshot_to_response(snapshot)

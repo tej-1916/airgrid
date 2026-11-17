@@ -125,7 +125,10 @@ async def test_weak_signal_answer_cites_records_and_is_saved(auth_client):
     assert data["details"]["persistence"]["class"] == "persistent"
     assert len(data["citations"]) == 6 and all(c["source_id"].startswith("snapshot:") for c in data["citations"])
     assert any("cause cannot be established" in m for m in data["missing_evidence"])
-    record = (await viewer.get(f"/api/v1/analyst/history/{data['history_id']}")).json()
+    # history is private to the operator who created it: any other user gets 404 and no content
+    other = await viewer.get(f"/api/v1/analyst/history/{data['history_id']}")
+    assert other.status_code == 404 and "Why does this Wi-Fi" not in other.text
+    record = (await engineer.get(f"/api/v1/analyst/history/{data['history_id']}")).json()
     assert record["kind"] == "question" and record["evidence_count"] == 6
     assert record["freshness"]["newest"] and record["operator"] == engineer.user.email
 
@@ -277,13 +280,13 @@ async def test_history_delete_is_admin_only_and_retention_covers_history(auth_cl
 async def test_report_analysis_is_recorded(auth_client, monkeypatch):
     from airgrid.schemas.diagnostics import DiagnosticReportResponse, TelemetrySnapshotResponse
     report_id = uuid.uuid4()
+    engineer = await auth_client("network_engineer")  # owns the campus-less fixture report
     report = DiagnosticReportResponse(
-        id=report_id, title="fixture", device_name="fixture", interface_name="fixture0", vantage_point="backend_server",
+        id=report_id, user_id=engineer.user.id, title="fixture", device_name="fixture", interface_name="fixture0", vantage_point="backend_server",
         data_provenance="instrumented_linux_telemetry", status="analyzed", summary_headline="x", overall_score=90,
         findings_count=0, critical_count=0, warning_count=0, good_count=0, created_at=NOW, updated_at=NOW,
         telemetry=TelemetrySnapshotResponse(interface_name="fixture0", rssi_dbm=-60.0))
     monkeypatch.setattr("airgrid.services.analyst_service.diagnostic_service.get_report_by_id", AsyncMock(return_value=report))
-    engineer = await auth_client("network_engineer")
     data = (await engineer.post("/api/v1/analyst/analyze", json={"report_id": str(report_id)})).json()
     record = (await engineer.get(f"/api/v1/analyst/history/{data['history_id']}")).json()
     assert record["kind"] == "report_analysis" and record["scope"]["report_id"] == str(report_id)

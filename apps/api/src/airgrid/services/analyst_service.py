@@ -11,10 +11,13 @@ from airgrid.services.diagnostic_service import diagnostic_service
 
 
 class AnalystService:
-    async def analyze(self, db, req):
+    async def analyze(self, db, req, user=None):
         report = await diagnostic_service.get_report_by_id(db, req.report_id)
         if not report:
             raise HTTPException(status_code=404, detail='Diagnostic report not found.')
+        if user is not None:  # the endpoint always passes the caller
+            from airgrid.services.campus_service import require_owned_or_campus_access
+            await require_owned_or_campus_access(db, user, report.campus_id, report.user_id)
         telemetry = report.telemetry
         if not telemetry:
             return AnalystResponse(report_id=report.id, summary='No recorded telemetry is available.', evidence=[], findings=[], limitations=['Collect and save an authorized observation.'])
