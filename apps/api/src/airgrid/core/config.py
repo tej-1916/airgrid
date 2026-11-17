@@ -87,6 +87,8 @@ class Settings(BaseSettings):
         ),
     )
     AIRGRID_AI_API_KEY: str = ""
+    # Private AirGrid records may only be sent to a loopback gateway unless an operator explicitly approves an external provider.
+    AIRGRID_AI_EXTERNAL_CONTEXT_APPROVED: bool = False
     AIRGRID_AI_DEFAULT_MODEL: str = ""
     AIRGRID_AI_TIMEOUT_SECONDS: int = Field(default=30, ge=1, le=60)
     AIRGRID_AI_MAX_RETRIES: int = Field(default=1, ge=0, le=2)  # transient failures before any output only

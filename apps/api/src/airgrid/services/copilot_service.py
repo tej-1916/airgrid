@@ -15,6 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import AsyncGenerator, List, Optional, Tuple
 
+from fastapi import HTTPException, status
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -36,6 +37,7 @@ from airgrid.models.all_models import (
     User,
 )
 from airgrid.services.ai_gateway import ai_gateway
+from airgrid.core.config import settings
 from airgrid.services.campus_service import get_authorized_campus_ids
 
 # Thresholds
@@ -256,6 +258,68 @@ async def gather_network_intelligence(
     lines.append(f"\n### Hardware & Infrastructure [MEASURED]\n- Managed APs in Authorized Scope: {total_aps}")
 
     return "\n".join(lines), citations
+
+
+def context_sharing_allowed() -> bool:
+    """Data-sharing policy: private records go only to a loopback gateway unless an operator approved an external provider."""
+    from urllib.parse import urlparse
+    host = (urlparse(settings.AIRGRID_AI_API_BASE_URL or "").hostname or "").lower()
+    return host in ("", "127.0.0.1", "localhost", "::1") or settings.AIRGRID_AI_EXTERNAL_CONTEXT_APPROVED  # "" = no gateway, nothing is sent
+
+
+async def gather_floor_context(db: AsyncSession, user: User, floor_id: uuid.UUID) -> Tuple[str, List[dict]]:
+    """Floor-level grounding. Authorization (404/403) is enforced here, before any record is read."""
+    from airgrid.services import campus_model as cm
+    from airgrid.services.campus_service import require_floor_access
+    await require_floor_access(db, user, floor_id)
+    floor = await db.get(Floor, floor_id)
+    building = await db.get(Building, floor.building_id)
+    lines = [f"### Selected floor: {sanitize_text(building.name)} / {sanitize_text(floor.name)}"]
+    cites = [{"source_id": f"floor:{floor.id}", "kind": "floor", "label": f"{building.name} {floor.name}", "metric": "Selected floor",
+              "value": floor.floor_number, "unit": "", "provenance": "MEASURED"}]
+    if building.building_code != cm.MODEL_BUILDING_CODE:
+        sessions = (await db.execute(select(SurveySession).where(SurveySession.floor_id == floor_id))).scalars().all()
+        lines.append(f"- Survey sessions on this floor: {len(sessions)}. No room geometry is registered for this building.")
+        return "\n".join(lines), cites
+    cov = await cm.room_coverage(db, floor_id, floor.floor_number)
+    sess = cov.get("session")
+    if not sess:
+        lines.append(f"- {cov.get('reason', 'No survey session exists for this floor.')} Coverage is UNKNOWN; do not estimate it.")
+        return "\n".join(lines), cites
+    synth = sess["all_synthetic_demo"]
+    tag = "SYNTHETIC_DEMO" if synth else "MEASURED"
+    lines.append(f"- Survey session '{sanitize_text(sess['name'])}': {sess['points']} points, provenance {sess['provenance_counts']}. "
+                 + ("ALL POINTS ARE SYNTHETIC DEMO DATA, not field measurements; say so in the answer." if synth else ""))
+    lines.append(f"- Room estimates use {cov['method']} [INTERPOLATED_ESTIMATE]. Bands: good >= -67 dBm, weak < -75 dBm.")
+    weak = [r for r in cov["rooms"] if r["band"] == "weak"]
+    unknown = [r for r in cov["rooms"] if r["band"] == "unknown"]
+    lines.append(f"- Rooms: {len(cov['rooms'])}; weak: {len(weak)}; unknown (outside measured support): {len(unknown)}.")
+    for r in cov["rooms"]:
+        lines.append(f"  - {r['id']} {sanitize_text(r['name'])} ({r['kind']}): {r['rssi_dbm']} dBm, {r['band']}, basis {r['basis']}")
+        cites.append({"source_id": f"room:{floor.id}:{r['id']}", "kind": "room", "label": f"{r['id']} {r['name']}", "metric": "RSSI",
+                      "value": r["rssi_dbm"], "unit": "dBm", "provenance": tag if r["basis"] == "measured_points_in_room" else "INTERPOLATED_ESTIMATE"})
+    return "\n".join(lines), cites
+
+
+async def gather_scoped_context(db: AsyncSession, user: User, campus_id: Optional[uuid.UUID], floor_id: Optional[uuid.UUID] = None) -> Tuple[str, List[dict]]:
+    """Authorize, apply the data-sharing policy, then retrieve context. Called before any provider transmission."""
+    if floor_id is not None:
+        await gather_floor_authorize(db, user, floor_id, campus_id)
+    if not context_sharing_allowed():
+        return ("Private AirGrid records were withheld: the AI gateway is not a loopback address and external data sharing "
+                "has not been approved by the operator. Answer from general Wi-Fi knowledge only and say that no records were used."), []
+    text, cites = await gather_network_intelligence(db, user, campus_id)
+    if floor_id is not None:
+        ftext, fcites = await gather_floor_context(db, user, floor_id)
+        text, cites = ftext + "\n\n" + text, fcites + cites
+    return text, cites
+
+
+async def gather_floor_authorize(db: AsyncSession, user: User, floor_id: uuid.UUID, campus_id: Optional[uuid.UUID]) -> None:
+    from airgrid.services.campus_service import require_floor_access
+    floor_campus = await require_floor_access(db, user, floor_id)
+    if campus_id and floor_campus != campus_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Selected floor is outside this conversation's campus.")
 
 
 def build_copilot_system_prompt(network_context: str) -> str:

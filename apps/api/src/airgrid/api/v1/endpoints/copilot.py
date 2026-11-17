@@ -29,7 +29,8 @@ from airgrid.services.campus_service import require_campus_access
 from airgrid.services.copilot_service import (
     build_copilot_system_prompt,
     build_messages_history,
-    gather_network_intelligence,
+    gather_floor_authorize,
+    gather_scoped_context,
     sanitize_text,
 )
 
@@ -210,6 +211,8 @@ async def send_message(
     # Campus authorization check before message intake or AI processing
     if conv.campus_id and user.role != "administrator":
         await require_campus_access(db, user, conv.campus_id)
+    if req.floor_id is not None:
+        await gather_floor_authorize(db, user, req.floor_id, conv.campus_id)  # 403/404 before intake and before any provider call
 
     # 1. Save user message
     user_content_clean = sanitize_text(req.content.strip())
@@ -232,7 +235,7 @@ async def send_message(
     context_text = ""
     citations = []
     if req.include_network_context:
-        context_text, citations = await gather_network_intelligence(db, user, conv.campus_id)
+        context_text, citations = await gather_scoped_context(db, user, conv.campus_id, req.floor_id)
 
     # 3. Build system prompt and message history
     system_prompt = build_copilot_system_prompt(context_text)
@@ -295,6 +298,8 @@ async def stream_message(
     # Campus authorization check before message intake or AI processing
     if conv.campus_id and user.role != "administrator":
         await require_campus_access(db, user, conv.campus_id)
+    if req.floor_id is not None:
+        await gather_floor_authorize(db, user, req.floor_id, conv.campus_id)  # 403/404 before intake and before any provider call
 
     # 1. Save user message (or, on retry, re-run the stored one and drop the failed reply: no duplicates)
     if req.retry:
@@ -326,7 +331,7 @@ async def stream_message(
     context_text = ""
     citations = []
     if req.include_network_context:
-        context_text, citations = await gather_network_intelligence(db, user, conv.campus_id)
+        context_text, citations = await gather_scoped_context(db, user, conv.campus_id, req.floor_id)
 
     system_prompt = build_copilot_system_prompt(context_text)
     chat_messages = await build_messages_history(db, conv, system_prompt)
@@ -444,7 +449,7 @@ async def regenerate_message(
     if not existing_msg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assistant message not found to regenerate.")
 
-    context_text, citations = await gather_network_intelligence(db, user, conv.campus_id)
+    context_text, citations = await gather_scoped_context(db, user, conv.campus_id)
     system_prompt = build_copilot_system_prompt(context_text)
     chat_messages = await build_messages_history(db, conv, system_prompt)
 
