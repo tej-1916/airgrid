@@ -11,7 +11,7 @@ import pytest
 from airgrid.core.database import AsyncSessionLocal
 from airgrid.core.security import hash_password
 from airgrid.models.all_models import (
-    AnalysisRecord, Building, Campus, CampusMembership, Floor, InternetSpeedTest, MLModel,
+    AnalysisRecord, AuditLog, Building, Campus, CampusMembership, Floor, InternetSpeedTest, MLModel,
     NetworkCollector, NetworkDiagnosticReport, NetworkTelemetrySnapshot, SurveySession, User,
 )
 
@@ -185,3 +185,35 @@ async def test_speed_tests_are_scoped_to_campus_or_owner(client, world):
     assert str(w["st_null"].id) not in (await client.get("/api/v1/speed-tests?limit=100", headers=hb)).text
     stats = (await client.get("/api/v1/speed-tests/stats/summary", headers=ha)).text
     assert "77.7" not in stats
+
+
+@pytest.mark.asyncio
+async def test_dashboard_is_campus_and_owner_scoped(client, world):
+    w = world
+    mark_a, mark_b = f"authz.mark.{uuid.uuid4().hex[:8]}", f"authz.mark.{uuid.uuid4().hex[:8]}"
+    async with AsyncSessionLocal() as s:
+        s.add_all([AuditLog(actor_id=w["alpha"].id, action=mark_a, resource_type="synthetic", payload={}),
+                   AuditLog(actor_id=w["beta"].id, action=mark_b, resource_type="synthetic", payload={})])
+        await s.commit()
+    ha, hg, hadm = await login(client, w["alpha"]), await login(client, w["gamma"]), await login(client, w["admin"])
+    # inventory lists only the caller's campuses
+    inv = (await client.get("/api/v1/dashboard/inventory", headers=ha)).text
+    sees_own, sees_foreign = w["ca"].name in inv, w["cb"].name in inv
+    assert sees_own and not sees_foreign, "inventory must list only member campuses"
+    assert (await client.get("/api/v1/dashboard/inventory", headers=hg)).json()["total"] == 0
+    admin_inv = (await client.get("/api/v1/dashboard/inventory", headers=hadm)).text
+    assert bool(w["cb"].name in admin_inv), "administrator sees every campus"
+    # summary: explicit foreign campus is denied; aggregate covers only member campuses
+    assert (await client.get(f"/api/v1/dashboard/summary?campus_id={w['cb'].id}", headers=ha)).status_code == 403
+    assert (await client.get("/api/v1/dashboard/summary", headers=ha)).json()["total_campuses"] == 1
+    assert (await client.get("/api/v1/dashboard/summary", headers=hg)).json()["total_campuses"] == 0
+    assert (await client.get("/api/v1/dashboard/summary", headers=hadm)).json()["total_campuses"] >= 2
+    # activity: users see only their own audit events; administrators see all
+    feed_a = (await client.get("/api/v1/dashboard/activity?limit=100", headers=ha)).text
+    own_seen, foreign_seen = mark_a in feed_a, mark_b in feed_a
+    assert own_seen and not foreign_seen, "activity must be limited to the caller's own events"
+    feed_g = (await client.get("/api/v1/dashboard/activity?limit=100", headers=hg)).text
+    assert not bool(mark_a in feed_g)
+    feed_adm = (await client.get("/api/v1/dashboard/activity?limit=100", headers=hadm)).text
+    both = (mark_a in feed_adm, mark_b in feed_adm)
+    assert both == (True, True)

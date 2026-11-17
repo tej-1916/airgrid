@@ -6,6 +6,7 @@ from sqlalchemy import select, func, and_, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from airgrid import __version__
 from airgrid.core.config import settings
 from airgrid.core.logging import logger
 from airgrid.models.all_models import (
@@ -29,10 +30,24 @@ from airgrid.schemas.dashboard import (
 
 
 async def get_dashboard_summary(
-    db: AsyncSession, campus_id: Optional[uuid.UUID] = None
+    db: AsyncSession, campus_id: Optional[uuid.UUID] = None, authorized_ids: Optional[List[uuid.UUID]] = None
 ) -> DashboardSummaryResponse:
-    """Computes real PostgreSQL counts for the operational summary."""
+    """Computes real PostgreSQL counts for the operational summary.
+
+    authorized_ids=None means unrestricted (administrator); otherwise the aggregate covers only those campuses.
+    """
     campus_name = None
+
+    if campus_id is None and authorized_ids is not None:
+        parts = [await get_dashboard_summary(db, cid) for cid in authorized_ids]
+        return DashboardSummaryResponse(
+            selected_campus_id=None, selected_campus_name=None, total_campuses=len(parts),
+            total_buildings=sum(p.total_buildings for p in parts), total_floors=sum(p.total_floors for p in parts),
+            total_floor_plans=sum(p.total_floor_plans for p in parts),
+            total_access_points=sum(p.total_access_points for p in parts),
+            uncalibrated_floor_plans=sum(p.uncalibrated_floor_plans for p in parts),
+            database_connected=True, backend_version=__version__,
+        )
 
     if campus_id:
         campus = await db.get(Campus, campus_id)
@@ -113,12 +128,14 @@ async def get_dashboard_summary(
         total_access_points=total_aps,
         uncalibrated_floor_plans=uncalibrated_plans,
         database_connected=True,
-        backend_version="0.1.0",
+        backend_version=__version__,
     )
 
 
-async def get_campus_inventory(db: AsyncSession) -> CampusInventoryResponse:
-    """Lists all campuses with aggregated counts for the inventory tab."""
+async def get_campus_inventory(
+    db: AsyncSession, authorized_ids: Optional[List[uuid.UUID]] = None
+) -> CampusInventoryResponse:
+    """Lists campuses (all for administrators, otherwise only authorized_ids) with aggregated counts."""
     stmt = (
         select(Campus)
         .options(
@@ -128,6 +145,8 @@ async def get_campus_inventory(db: AsyncSession) -> CampusInventoryResponse:
         )
         .order_by(Campus.name.asc())
     )
+    if authorized_ids is not None:
+        stmt = stmt.where(Campus.id.in_(authorized_ids))
     res = await db.execute(stmt)
     campuses = res.scalars().all()
 
@@ -153,15 +172,17 @@ async def get_campus_inventory(db: AsyncSession) -> CampusInventoryResponse:
 
 
 async def get_recent_activity(
-    db: AsyncSession, limit: int = 25
+    db: AsyncSession, limit: int = 25, actor_id: Optional[uuid.UUID] = None
 ) -> DashboardActivityResponse:
-    """Fetches sanitized recent events from the AuditLog table."""
+    """Fetches sanitized recent audit events; actor_id restricts the feed to one user's own events."""
     stmt = (
         select(AuditLog)
         .options(selectinload(AuditLog.actor))
         .order_by(AuditLog.created_at.desc())
         .limit(limit)
     )
+    if actor_id is not None:
+        stmt = stmt.where(AuditLog.actor_id == actor_id)
     res = await db.execute(stmt)
     logs = res.scalars().all()
 

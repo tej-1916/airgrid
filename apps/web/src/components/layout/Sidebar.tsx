@@ -130,7 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="flex items-center gap-1.5">
                 <span className="font-bold text-sm tracking-wide text-[#0B0B0D]">AIRGRID</span>
                 <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[#ECECE8] text-[#BE6B37] font-semibold border border-[#D9DBDE]">
-                  P02
+                  v1.0
                 </span>
               </div>
               <p className="text-[11px] text-[#737373] truncate">Campus Intelligence</p>

@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>AirGrid: An Evidence-Based Campus Wi-Fi Network Intelligence Platform</title>
+<style>
+  body { font-family: "Times New Roman", Times, serif; font-size: 10pt; text-align: justify; color: #000; line-height: 1.25; }
+  h1.title { font-size: 24pt; font-weight: bold; text-align: center; margin: 0 0 8pt 0; }
+  p.author { text-align: center; font-size: 10pt; margin: 0; }
+  h2 { font-size: 11pt; font-weight: bold; text-transform: uppercase; text-align: left; margin: 14pt 0 4pt 0; }
+  h3 { font-size: 10pt; font-weight: bold; font-style: italic; text-align: left; margin: 9pt 0 3pt 0; }
+  p { margin: 0 0 6pt 0; }
+  table { border-collapse: collapse; margin: 4pt auto 4pt auto; font-size: 9pt; }
+  td, th { border: 1px solid #000; padding: 2pt 5pt; text-align: left; vertical-align: top; }
+  th { font-weight: bold; }
+  p.cap { text-align: center; font-size: 9pt; margin: 2pt 0 8pt 0; }
+  p.fig { text-align: center; margin: 6pt 0 0 0; }
+  p.ref { text-align: left; margin: 0 0 3pt 0; font-size: 9pt; }
+</style>
+</head>
+<body>
+
+<h1 class="title">AirGrid: An Evidence-Based Campus Wi-Fi Network Intelligence Platform with Spatial Survey Analysis and a Grounded AI Assistant</h1>
+<p class="author">[Student name(s)] &nbsp;|&nbsp; [Roll number] &nbsp;|&nbsp; [Department, College] &nbsp;|&nbsp; Repository owner: tej-1916</p>
+<p class="author">Project repository: https://github.com/tej-1916/airgrid &nbsp;|&nbsp; Version 1.0, 17 November 2026</p>
+<p class="author">&nbsp;</p>
+
+<h2>Abstract</h2>
+<p>Campus Wi-Fi problems are usually investigated with isolated speed tests and anecdotal complaints, which cannot show where coverage is weak or whether a change helped, and general-purpose AI assistants may invent causes for faults they cannot observe. This project presents AirGrid, a web platform that lets a network operator record measurements with explicit provenance, place them on calibrated floor plans of a campus hierarchy, and generate coverage heatmaps using inverse distance weighting restricted to measured spatial support. A machine-learning laboratory trains nearest-neighbour, random-forest and gradient-boosting regressors on verified survey points only, evaluates them on held-out survey sessions, and compares them against mean and interpolation baselines. Deterministic diagnostics and an evidence-citing assistant explain the stored records, and an optional language-model chat service runs through a server-side gateway with bounded retry. Access is controlled by authenticated sessions, roles, campus membership and record ownership, all enforced on the server. The system was implemented with React, FastAPI and PostgreSQL. Verification consists of an automated suite in which 242 tests passed and one live-provider test was skipped, a successful production build, a browser check of ten routes with no page errors, and regression tests that reproduced and then closed seven groups of authorization defects. The application database currently contains no instrument-verified survey points, so no field accuracy is claimed for the spatial models. AirGrid shows that provenance-gated evidence and server-side authorization can make network analysis traceable and honest, and it defines clear steps for physical field validation.</p>
+
+<p><b><i>Keywords</i></b>&mdash;Wi-Fi survey, received signal strength, spatial interpolation, network diagnostics, access control, grounded language model.</p>
+
+<h2>I. Introduction</h2>
+<h3>A. Background of the Study</h3>
+<p>Wireless local area networks built on the IEEE 802.11 family of standards [1] are the primary way students and staff reach campus services. The quality of a connection at a given spot depends on the received signal strength indicator (RSSI), measured in dBm, on interference, and on the load of the access point. Operators therefore need measurements taken at known places, not only network-wide averages. Signal-strength readings reported by different devices are not guaranteed to be directly comparable, so the origin of every reading matters.</p>
+<h3>B. Problem Identification</h3>
+<p>In practice, complaints such as &ldquo;the signal is weak in the laboratory&rdquo; are handled with a single speed test on a single device, or with coverage maps that cannot be traced to measurements. Operators cannot easily tell where coverage is weak, whether a change improved it, or which statements a tool can honestly make. Closed commercial survey tools are costly and rarely explain how a value was produced, and conversational AI tools may state confident causes for problems that they cannot observe.</p>
+<h3>C. Motivation</h3>
+<p>The topic was chosen because campus network quality directly affects teaching and research, and because the combination of measurements, floor plans and language-model assistance is useful only if its limits are explicit. The expected benefit is an operator workflow in which every displayed figure is traceable to a stored record or is shown as unavailable.</p>
+<h3>D. Objectives</h3>
+<p>(1) To record browser, host and survey measurements with explicit provenance. (2) To model campuses, buildings and floors with calibrated floor plans. (3) To generate coverage heatmaps that do not extrapolate beyond measured support. (4) To implement and evaluate signal-prediction models using held-out sessions and baseline comparison, refusing unsuitable data. (5) To provide deterministic diagnostics and an assistant whose answers cite stored records. (6) To enforce authentication and campus-scoped authorization on the server.</p>
+
+<h2>II. Literature Review / Related Work</h2>
+<h3>A. Signal-Strength Measurement and Indoor Positioning</h3>
+<p>Bahl and Padmanabhan [2] (2000) studied how signal strength measured at several base stations can locate a user inside a building. They combined empirical measurements with a radio propagation model and evaluated the approach in an office-building testbed, reporting location errors on the order of a few metres. The method depends on labour-intensive surveys and targets positioning rather than operator-facing diagnostics, which is the survey step AirGrid supports but for a different purpose.</p>
+<h3>B. Spatial Interpolation</h3>
+<p>Shepard [3] (1968) proposed an interpolation function for irregularly spaced data in which each known sample is weighted by the inverse of its distance, raised to a power, to the query point. It needs no training and is easy to explain, but its estimates are limited by sample density and it cannot judge whether a query lies outside the measured region. AirGrid uses this method as both the heatmap generator and a baseline, and adds a spatial support mask for that missing judgement.</p>
+<h3>C. Machine-Learning Regressors and Validation</h3>
+<p>Cover and Hart [4] (1967) analysed the nearest-neighbour rule and showed that its asymptotic error is bounded by twice the Bayes error; the result holds only for large samples, which survey data rarely provide. Breiman [5] (2001) introduced random forests, ensembles of randomized decision trees whose generalization error converges as trees are added; their predictions stay within the range of the training targets, which limits extrapolation. Pedregosa et al. [6] (2011) describe the scikit-learn library that implements these learners with a uniform interface and is used in this project. Kohavi [7] (1995) compared cross-validation with bootstrap estimation and recommended stratified ten-fold cross-validation for accuracy estimation. Survey points from one walk are spatially correlated, so AirGrid adapts the idea by keeping all points of a session in the same fold; that grouping is this project&rsquo;s design choice and is not taken from [7].</p>
+<h3>D. Language Models Grounded in Retrieved Evidence</h3>
+<p>Lewis et al. [8] (2020) combined a generative model with retrieved documents and reported better results than purely parametric models on knowledge-intensive tasks. Grounding reduces but does not remove unsupported statements. AirGrid is inspired by this idea but is not a vector-retrieval system: its assistant first builds an answer from stored records, and a language model may only rephrase it, after which numbers and record identifiers absent from the evidence cause the output to be rejected.</p>
+<h3>E. Security Building Blocks</h3>
+<p>The Argon2 memory-hard function [9] (Biryukov et al., 2021) is specified for password hashing, and keyed-hash message authentication (HMAC) [10] (Krawczyk et al., 1997) authenticates messages with a shared secret. AirGrid uses the former for stored passwords and the latter to sign collector submissions.</p>
+<h3>F. Research Gap</h3>
+<p>Within the sources reviewed here, positioning work [2] and general methods [3]&ndash;[8] address individual steps. None of them packages provenance-gated measurements, a support-aware heatmap, held-out comparison against simple baselines, and an assistant that states missing evidence into one operator workflow with server-side access control. The contribution of AirGrid is this engineering integration and its integrity rules; it is not a new interpolation or learning algorithm.</p>
+
+<h2>III. Proposed Methodology</h2>
+<h3>A. System Architecture</h3>
+<p>AirGrid is a modular monolith (Fig. 1). The browser application communicates with the backend over HTTPS using an HttpOnly session cookie and a CSRF token. The backend contains routers and services for authentication, campuses, surveys, speed tests, machine learning, diagnostics, the analyst and the Copilot, and stores data in PostgreSQL and floor-plan images on local storage. A command-line collector on a Linux host submits HMAC-signed snapshots, and an external OpenAI-compatible gateway is called only from the server.</p>
+<p class="fig"><img src="figures/fig1_architecture.png" width="620" alt="Fig. 1"></p>
+<p class="cap">Fig. 1. System architecture of AirGrid Version 1.0 as implemented.</p>
+<p>Fig. 2 shows how evidence moves from a source to an explanation. Each record keeps its provenance. Estimates and predictions never become training or optimization evidence, and measurements from different sources, devices or methods are not pooled.</p>
+<p class="fig"><img src="figures/fig2_evidence_pipeline.png" width="620" alt="Fig. 2"></p>
+<p class="cap">Fig. 2. Evidence provenance pipeline and the integrity rules enforced in code.</p>
+<h3>B. Dataset Description</h3>
+<p>No public dataset is used. Data are produced by operators: survey points placed on a calibrated plan, instrument snapshots, and speed tests. The model input is the normalised plan position (two features, x and y) and the target is RSSI in dBm. Only points whose provenance is <i>field_instrument_verified</i> are eligible for production training, and training for a floor is permitted only when there are at least 15 such points across at least 2 survey sessions with two-dimensional spatial spread. At the time of writing the application database contains no such points, so production training is unavailable. Model behaviour was therefore tested on synthetic fixtures in an isolated test database (a minimum of 6 fixture points is required in that mode). Typical data-quality issues are sparse and clustered points and a single measuring device.</p>
+<h3>C. Data Preprocessing</h3>
+<p>The operations actually performed are: filtering by provenance; restricting a model to one network label so that different networks are not mixed; discarding records without finite signal values, position or time; and converting positions to coordinates normalised by plan size. No missing-value imputation, encoding or feature scaling beyond this normalisation is performed.</p>
+<h3>D. Algorithm Selection and Justification</h3>
+<p><b>Inverse distance weighting (IDW)</b> is used for the heatmap with power 2, a 0.5 m distance softening term, a 4 m convex-hull support buffer and an 18 m mask radius. It is transparent and needs no training, but cannot learn structure beyond distance; it also serves as the baseline a learned model must beat. <b>k-nearest neighbours</b> (k = 5, distance-weighted, Euclidean) is chosen as a non-parametric learner suited to small spatial samples; it is sensitive to sampling density. <b>Random forest</b> (50 trees, maximum depth 8) captures non-linear patterns and is robust to noise, but cannot extrapolate beyond observed values. <b>Histogram gradient boosting</b> (50 iterations, depth 5) was included as a stronger boosted alternative that may overfit on very small samples. A mean-value predictor is the second baseline. Assumptions are that signal varies smoothly with position and that the plan scale is calibrated.</p>
+<h3>E. Model Development and Training</h3>
+<p>Eligible points are selected as in Section III-C, a validation strategy is chosen, the model is fitted within each fold, predictions on the held-out fold are collected, and a final model is fitted on all eligible points and stored together with a floor-plan signature (floor, building, plan file, size, scale and calibration). A change to the plan invalidates the model and requires retraining. The default validation groups points by survey session using grouped k-fold with up to five folds; spatial block validation is also available. Random states are fixed at 42. The champion model of a floor is the one with the lowest held-out RMSE. Libraries: scikit-learn [6], NumPy, SQLAlchemy and FastAPI.</p>
+<h3>F. Evaluation Metrics</h3>
+<p>The task is regression, so mean absolute error (MAE), root mean squared error (RMSE) and the coefficient of determination (R&sup2;) are computed on held-out points. The learned model, the mean baseline and the IDW baseline are scored on the same held-out points that lie inside the interpolation support, which keeps the comparison fair. Classification metrics such as accuracy or F1-score are not used because they were not calculated. For the heatmap itself, leave-one-out cross-validation reports the error of IDW at each held-out measurement.</p>
+
+<h2>IV. Implementation</h2>
+<h3>A. Software and Hardware Requirements</h3>
+<p>Backend: Python 3.12, FastAPI, Pydantic v2, SQLAlchemy 2 (asynchronous), Alembic and scikit-learn. Frontend: React 18, TypeScript, Vite and Tailwind CSS. Database: PostgreSQL 16 (migration head 0013). Testing: pytest with httpx and Playwright. Development and testing were performed on a single Linux machine with its own Wi-Fi interface; no dedicated measurement hardware or GPU was used, and no production deployment was made.</p>
+<h3>B. Module Description</h3>
+<p><b>Authentication and authorization:</b> Argon2id password hashes [9], server-side sessions, CSRF protection, four roles, campus membership, and owner-only access for records without a campus. <b>Campus management:</b> campus, building and floor hierarchy, floor-plan upload and scale calibration. <b>Dashboard:</b> inventory counts, campus inventory and audit activity scoped to the caller. <b>Speed testing:</b> an operator-started browser test with explicit consent and persisted history. <b>Heatmaps:</b> survey sessions, observations, IDW interpolation with a support mask and leave-one-out validation. <b>Network diagnostics:</b> opt-in host collection, registered collectors with HMAC-signed [10] ingestion, deterministic findings, trends and operator-applied retention. <b>ML Lab:</b> readiness checks, training and evaluation. <b>Analyst:</b> evidence-cited answers and history. <b>Copilot:</b> streaming chat through the gateway with bounded retry and per-user isolation.</p>
+<h3>C. Implementation Procedure and Screenshots</h3>
+<p>An operator creates a campus, building and floor, uploads a plan and calibrates its scale (Fig. 3). Measurements are then recorded and the Command Center summarises the inventory (Fig. 4). In the heatmap studio the operator records points, generates the heatmap and validates it (Fig. 5), and the ML Lab reports readiness and, when data allow, evaluation results (Fig. 6). Diagnostics collect and analyse host snapshots (Fig. 7), the Analyst answers questions with cited records (Fig. 8), and the Copilot offers a chat interface backed by the gateway (Fig. 9). Figures 3 and 9 were captured from the real backend; Figures 4 to 8 were rendered by the real frontend against labelled synthetic fixtures and therefore show the interface, not live measurements.</p>
+<p class="fig"><img src="../verification/screenshots/campus_manager_desktop.png" width="560" alt="Fig. 3"></p>
+<p class="cap">Fig. 3. Campus manager with a calibrated floor plan (real backend, development data).</p>
+<p class="fig"><img src="../verification/screenshots/fixture_dashboard_desktop.png" width="560" alt="Fig. 4"></p>
+<p class="cap">Fig. 4. Command Center showing the verification state of each module (synthetic fixture).</p>
+<p class="fig"><img src="../verification/screenshots/fixture_heatmaps_desktop.png" width="560" alt="Fig. 5"></p>
+<p class="cap">Fig. 5. Wi-Fi heatmap studio (synthetic fixture).</p>
+<p class="fig"><img src="../verification/screenshots/fixture_ml_lab_desktop.png" width="560" alt="Fig. 6"></p>
+<p class="cap">Fig. 6. ML Lab readiness and evaluation view (synthetic fixture).</p>
+<p class="fig"><img src="../verification/screenshots/fixture_diagnostics_desktop.png" width="560" alt="Fig. 7"></p>
+<p class="cap">Fig. 7. Network diagnostics (synthetic fixture).</p>
+<p class="fig"><img src="../verification/screenshots/fixture_analyst_ask_desktop.png" width="560" alt="Fig. 8"></p>
+<p class="cap">Fig. 8. Analyst answer citing stored records (synthetic fixture).</p>
+<p class="fig"><img src="../verification/screenshots/copilot_fix_success_desktop.png" width="560" alt="Fig. 9"></p>
+<p class="cap">Fig. 9. AI Copilot streaming a reply through the FreeLLM gateway (real backend and provider).</p>
+
+<h2>V. Results and Discussion</h2>
+<h3>A. Experimental Results</h3>
+<p>All checks ran locally. Backend tests used an isolated PostgreSQL test database and synthetic data only; the browser check used labelled fixtures and blocked every external request. Table I summarises the verification outcomes, and Table II groups the 223 test functions by area (some are parameterised, giving 243 collected tests).</p>
+<p class="cap">TABLE I. VERIFICATION OUTCOMES</p>
+<table>
+<tr><th>Check</th><th>Result</th></tr>
+<tr><td>Backend test suite (pytest)</td><td>242 passed, 1 skipped, 0 failed</td></tr>
+<tr><td>Skipped test</td><td>Live-provider integration test; requires a local environment file</td></tr>
+<tr><td>Frontend production build</td><td>Succeeded (large-chunk warning only)</td></tr>
+<tr><td>Browser verification</td><td>10 routes, 2 viewport widths, 0 page errors, 15 external requests blocked, 0 live probes</td></tr>
+<tr><td>Authorization regression tests</td><td>8 tests; all failed before the fixes and pass after</td></tr>
+</table>
+<p class="cap">TABLE II. TEST FUNCTIONS BY AREA</p>
+<table>
+<tr><th>Area</th><th>Test functions</th></tr>
+<tr><td>Authentication, authorization and isolation</td><td>38</td></tr>
+<tr><td>Campuses and dashboard</td><td>12</td></tr>
+<tr><td>Speed testing</td><td>9</td></tr>
+<tr><td>Surveys, interpolation and heatmaps</td><td>33</td></tr>
+<tr><td>Diagnostics and collectors</td><td>43</td></tr>
+<tr><td>ML Lab and optimization</td><td>17</td></tr>
+<tr><td>Analyst, AI gateway and provider integration</td><td>32</td></tr>
+<tr><td>AI Copilot</td><td>14</td></tr>
+<tr><td>Database, health, safety and webhooks</td><td>25</td></tr>
+<tr><td><b>Total</b></td><td><b>223</b></td></tr>
+</table>
+<p>The authorization audit reproduced defects with failing tests before each fix (Table III). A review of an earlier push had reported eight issues but itemized only some; the remaining ones were covered by a search for the same pattern, so the list below is the set that could be demonstrated, not a proof that no other defect exists.</p>
+<p class="cap">TABLE III. AUTHORIZATION DEFECTS REPRODUCED AND CLOSED</p>
+<table>
+<tr><th>Area</th><th>Defect before the fix</th></tr>
+<tr><td>Diagnostics</td><td>Reports and snapshots with no campus readable or deletable by any user</td></tr>
+<tr><td>Survey comparison</td><td>No access check on either compared session</td></tr>
+<tr><td>ML models</td><td>Prediction map, promotion, deletion and listing ignored the model&rsquo;s campus</td></tr>
+<tr><td>Analyst</td><td>History and evidence not scoped to the caller</td></tr>
+<tr><td>Collectors and speed tests</td><td>Observations and history not scoped by campus or owner</td></tr>
+<tr><td>Dashboard</td><td>Inventory, counts and audit feed exposed all campuses and users</td></tr>
+</table>
+<p>The Copilot was exercised against the live gateway: a question returned a streamed reply from a provider-reported model with a latency of 528 ms in the captured example (Fig. 9). Latency varies with the free-tier provider and is not a performance guarantee.</p>
+<h3>B. Performance Evaluation</h3>
+<p>MAE, RMSE and R&sup2; are implemented as described in Section III-F, but no values from real field data can be reported: the application database holds no instrument-verified survey points, and quoting figures from synthetic fixtures would not describe real network behaviour. This report therefore makes no accuracy claim for the spatial models.</p>
+<h3>C. Comparison with Existing or Alternative Algorithms</h3>
+<p>The system is designed to compare the learned models with the mean and IDW baselines on identical held-out points and to state the verdict in the interface; because no field data exist, no comparison table is presented, and no ranking of the algorithms is claimed. No comparison with published systems is made because their datasets and settings are not comparable.</p>
+<h3>D. Discussion</h3>
+<p>The most useful outcome of the project is the set of integrity rules: provenance tags, refusal to train on unverified data, support-aware heatmaps and grounding checks. The authorization audit showed that a missing-campus value tended to disable a check (a fail-open pattern); the remedy was to deny access whenever ownership cannot be established. Limitations are: no field validation; on-demand rather than continuous monitoring; several interface pages (devices, monitor, alerts, reports) that are shells without backend data; rate limits held per process; model identity reported by the provider and not verified; and open dependency advisories in development tooling and an unused server-rendering path of the routing library, while the Python packages with advisories (Pillow, certifi, dnspython, opentelemetry-api) were upgraded before release.</p>
+
+<h2>VI. Conclusion and Future Work</h2>
+<h3>A. Conclusion</h3>
+<p>AirGrid Version 1.0 delivers authentication and campus-scoped authorization, campus management, a dashboard, speed testing, survey heatmaps, network diagnostics, an evidence-cited analyst and a gateway-backed Copilot, each supported by automated tests and demonstrations. The objectives on provenance, calibrated modelling, support-aware heatmaps, honest model evaluation and server-side authorization were achieved in software. The objective of evaluating models on real campus data could not be met yet because no verified field data have been collected.</p>
+<h3>B. Future Work</h3>
+<p>The next steps follow from the limitations: a physical field survey to collect verified data and publish measured model accuracy; continuous monitoring and alerting backed by the API; a shared rate-limit store and multi-worker deployment; automated dependency and security scanning in continuous integration; and an optional three-dimensional campus view, which is separate work not included in this release.</p>
+
+<h2>References</h2>
+<p class="ref">[1] IEEE Standard for Information Technology&mdash;Telecommunications and Information Exchange between Systems&mdash;Local and Metropolitan Area Networks&mdash;Specific Requirements&mdash;Part 11: Wireless LAN Medium Access Control (MAC) and Physical Layer (PHY) Specifications, IEEE Std 802.11-2020, 2021.</p>
+<p class="ref">[2] P. Bahl and V. N. Padmanabhan, &ldquo;RADAR: An in-building RF-based user location and tracking system,&rdquo; in <i>Proc. IEEE INFOCOM</i>, 2000, pp. 775&ndash;784.</p>
+<p class="ref">[3] D. Shepard, &ldquo;A two-dimensional interpolation function for irregularly-spaced data,&rdquo; in <i>Proc. 23rd ACM National Conf.</i>, 1968, pp. 517&ndash;524.</p>
+<p class="ref">[4] T. Cover and P. Hart, &ldquo;Nearest neighbor pattern classification,&rdquo; <i>IEEE Trans. Inf. Theory</i>, vol. 13, no. 1, pp. 21&ndash;27, 1967.</p>
+<p class="ref">[5] L. Breiman, &ldquo;Random forests,&rdquo; <i>Mach. Learn.</i>, vol. 45, no. 1, pp. 5&ndash;32, 2001.</p>
+<p class="ref">[6] F. Pedregosa <i>et al.</i>, &ldquo;Scikit-learn: Machine learning in Python,&rdquo; <i>J. Mach. Learn. Res.</i>, vol. 12, pp. 2825&ndash;2830, 2011.</p>
+<p class="ref">[7] R. Kohavi, &ldquo;A study of cross-validation and bootstrap for accuracy estimation and model selection,&rdquo; in <i>Proc. 14th Int. Joint Conf. Artificial Intelligence (IJCAI)</i>, 1995, pp. 1137&ndash;1143.</p>
+<p class="ref">[8] P. Lewis <i>et al.</i>, &ldquo;Retrieval-augmented generation for knowledge-intensive NLP tasks,&rdquo; in <i>Advances in Neural Information Processing Systems</i>, vol. 33, 2020, pp. 9459&ndash;9474.</p>
+<p class="ref">[9] A. Biryukov, D. Dinu, D. Khovratovich, and S. Josefsson, &ldquo;Argon2 memory-hard function for password hashing and proof-of-work applications,&rdquo; RFC 9106, Sep. 2021.</p>
+<p class="ref">[10] H. Krawczyk, M. Bellare, and R. Canetti, &ldquo;HMAC: Keyed-hashing for message authentication,&rdquo; RFC 2104, Feb. 1997.</p>
+
+</body>
+</html>

@@ -1,27 +1,182 @@
-# AirGrid
+# AIRGRID
 
-AirGrid records campus network measurements, maps operator Wi-Fi surveys, evaluates spatial RSSI models, and helps operators decide what to measure next. It uses measured values and explicit unavailable states. It does not automatically configure network infrastructure.
+**Campus Wi-Fi network intelligence: measure, map, diagnose and explain, using evidence instead of guesses.**
 
-The application is a modular monolith: React **18**, TypeScript, Vite and Tailwind in `apps/web`; Python 3.12+, FastAPI, Pydantic, SQLAlchemy and Alembic in `apps/api`; PostgreSQL for application data. Shared TypeScript contracts live in `packages/shared-contracts`; the operator-run collector CLI lives in `packages/collector`.
+**Version 1.0** · Owner and maintainer: [tej-1916](https://github.com/tej-1916) · College project · Version 1.0 prepared for submission on 17 November 2026
+Submission checkpoint tag: `v1.0-submission` · Detailed evidence: [`docs/submission/SUBMISSION_EVIDENCE.md`](docs/submission/SUBMISSION_EVIDENCE.md) · Project report: [`docs/submission/`](docs/submission/)
 
-## Current capabilities
+AirGrid is a full-stack web application (React + FastAPI + PostgreSQL) that helps a campus network operator record real Wi-Fi and internet measurements, place them on calibrated floor plans, build coverage heatmaps, run read-only diagnostics, and ask an evidence-grounded AI assistant about the results. It never configures network equipment, and every number it shows carries its source, or an explicit "unavailable" state.
 
-| Route | Implemented behavior |
+> **Reading guide.** This README separates what is *implemented and verified* from what is *implemented with limits* and what is *planned*. Nothing in the first list is claimed without code, automated tests and a working demonstration; the other two lists are deliberately honest about the gaps.
+
+## Problem statement
+
+Campus Wi-Fi complaints ("the signal is weak in the lab") are usually investigated with anecdotes: one speed test on one phone, or a coverage map nobody can trace back to measurements. That makes it hard to know **where** coverage is really weak, **whether** a change helped, and **which** claims a tool can honestly make. Commercial survey tools are closed, per-seat licensed and rarely explain how a number was produced. Generic AI chat tools will happily invent causes for a network problem that they cannot observe.
+
+## Objectives
+
+1. Record network measurements (browser speed tests, host Wi-Fi telemetry, operator survey points) with explicit **provenance**, so sources are never silently mixed.
+2. Model a campus as Campus → Building → Floor with calibrated floor plans so measurements have a physical position.
+3. Turn survey points into an interpolated coverage heatmap that refuses to extrapolate beyond measured support.
+4. Evaluate machine-learning signal models honestly (held-out sessions, compared against simple baselines) and refuse to train on data that is not real.
+5. Provide deterministic diagnostics and an AI assistant whose answers cite stored records and state missing evidence.
+6. Enforce authentication, role-based and campus-scoped authorization on the server.
+
+## Version 1.0 scope
+
+### Implemented and verified (code + automated tests + working demonstration)
+
+| # | Module | What works | Main evidence |
+|---|---|---|---|
+| 1 | **Authentication and authorization** | Argon2id passwords, server-side sessions in HttpOnly cookies, CSRF protection, roles (`administrator`, `network_engineer`, `technician`, `viewer`), campus membership, owner-only access for campus-less records, server-side enforcement | `test_auth_*`, `test_campus_access_control`, `test_authz_remediation` (8), `test_copilot_tenant_isolation`, `test_safety_regressions` |
+| 2 | **Campus management** | Campus/building/floor hierarchy, floor-plan upload, scale calibration, membership-scoped listing | `test_campus_endpoints`, browser verification, real-backend screenshot |
+| 3 | **Dashboard** | Inventory counts, campus inventory, audit activity, system status, all scoped to the caller's campuses (administrators see everything) | `test_dashboard_endpoints`, `test_authz_remediation` |
+| 4 | **Internet speed testing** | Operator-started Cloudflare browser throughput/latency/jitter test, explicit consent, persisted and campus-scoped history, statistics | `test_speed_test_endpoints`, `docs/verification/open_speed_test_consent.cjs` |
+| 5 | **Wi-Fi heatmaps** | Calibrated survey sessions, manual and instrument observations, IDW interpolation with spatial support mask, leave-one-out validation, session comparison | `test_survey_endpoints` (26), `test_survey_interpolation` |
+| 6 | **Network diagnostics** | Opt-in backend-host Wi-Fi collection, registered collectors with HMAC-signed ingestion, deterministic findings, trends, operator-applied retention | `test_network_diagnostics`, `test_collectors` (27) |
+| 7 | **AI intelligence (Analyst)** | Evidence-cited answers to six question types, same-source window comparisons, private analysis history, consented and grounding-checked AI rephrasing | `test_analyst`, `test_analyst_evidence`, `test_ai_gateway` |
+| 8 | **AI Copilot (FreeLLM API)** | Streaming chat through an OpenAI-compatible gateway, conversation history, bounded retry, recoverable errors, no duplicate messages on retry, per-user isolation | `test_copilot`, `test_copilot_provider_resilience`, `test_copilot_tenant_isolation`, live run (see below) |
+
+### Implemented, with known limitations
+
+| Module | Limitation |
 |---|---|
-| `/` | Existing premium landing page |
-| `/auth/login` | Argon2 passwords, server-side sessions, HttpOnly session cookies and CSRF protection |
-| `/dashboard` | Database inventory counts and audit activity |
-| `/campuses` | Campus/building/floor hierarchy, protected plan uploads and calibration |
-| `/speed-test` | Operator-started Cloudflare browser throughput, latency and jitter tests; persisted history |
-| `/heatmaps` | Survey sessions, manual observations, **placement of fresh instrument observations at an operator-chosen calibrated position**, history/comparison and IDW interpolation with spatial support masks |
-| `/ml-lab` | Readiness with counts by source, KNN/Random Forest/HistGradientBoosting training, held-out evaluation, mean/IDW baselines, model history, prediction maps bound to the floor-plan version they were trained on |
-| `/diagnostics` | Opt-in backend-host collector, **registered collectors with signed ingestion**, server-owned snapshot analysis, persisted trend charts, operator-applied retention, bounded gateway checks, allowlisted iperf, deterministic findings |
-| `/ai-analyst` | Saved-report explanations, **evidence-cited answers to six question types**, same-source window comparisons, analysis history, consented and grounding-checked optional AI rephrasing with payload preview |
-| `/optimization` | Network-specific survey opportunities, **saved versioned candidate plans**, **manual AP inventory**, nearest-registered-AP distance review, **measured before/after session comparison**, JSON/print export |
+| **Wi-Fi monitoring** | Collection is **on demand** (operator-triggered, or by a registered collector the operator runs). There is no continuous monitoring daemon, and the *Live Network Monitor* page is a UI shell that makes no API calls. |
+| **Network intelligence (ML Lab, AP optimization)** | Training, held-out evaluation, baselines and prediction maps are implemented and tested on isolated synthetic fixtures. The application database currently holds **zero** instrument-verified survey points, so operational training is correctly *unavailable* until at least 15 real points across 2 sessions exist. No accuracy figure from physical field data is claimed. |
+| **Heatmaps and collectors on real hardware** | The workflow is verified in software and with a real Linux Wi-Fi interface on the development machine. A formal physical field acceptance survey has not been performed. |
+| **Rate limiting** | Per process; a shared store is required before running several API workers. |
+| **Dependencies** | GitHub Dependabot reports open advisories; see [Known limitations](#known-limitations). |
 
-`/network-tools` and `/network-diagnostics` redirect to `/diagnostics`; `/ap-optimization` uses the optimization workspace. Other existing routes remain, including placeholder device, monitor, model-control, alert and report pages. Their navigation does not imply implemented monitoring or SLA reporting. See [route status](docs/architecture/FRONTEND_ROUTES.md).
+### Planned for a future version (not part of 1.0)
 
-## Measurement integrity and limitations
+Continuous monitoring and alerting; API-backed *Devices & APs*, *Alerts* and *Reports* pages (currently UI shells); a 3D campus view (the Blender "Mega Campus" is separate local work and is **not** part of this repository or release); a shared rate-limit store; CI pipeline and a deployment target (no deployment has been performed); field validation of model accuracy.
+
+## System architecture
+
+![AirGrid architecture](docs/submission/figures/fig1_architecture.png)
+
+```mermaid
+flowchart LR
+  B[Operator browser<br/>React 18 + TypeScript + Vite] -->|HTTPS, cookie + CSRF| API[FastAPI backend]
+  C[Collector CLI<br/>Linux, opt-in] -->|HMAC-signed POST| API
+  API --> DB[(PostgreSQL<br/>SQLAlchemy + Alembic)]
+  API --> FS[Floor-plan storage]
+  API -->|server-side only| AI[FreeLLM gateway<br/>OpenAI-compatible]
+```
+
+The backend is a modular monolith. Authorization is enforced in the services and endpoints, never trusted to the browser. How evidence flows from a measurement to an AI answer is shown below.
+
+![Evidence provenance pipeline](docs/submission/figures/fig2_evidence_pipeline.png)
+
+## Technology stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 18, TypeScript, Vite, Tailwind CSS |
+| Backend | Python 3.12+, FastAPI, Pydantic v2, SQLAlchemy 2 (async), Alembic |
+| Database | PostgreSQL 16 (migration head `0013_ai_copilot_conversations`) |
+| Machine learning | scikit-learn: k-nearest neighbours, random forest, histogram gradient boosting; inverse-distance-weighting baseline |
+| Security | Argon2id, server-side sessions, CSRF double-submit token, HMAC-SHA256 collector signing |
+| AI | OpenAI-compatible gateway (FreeLLM router); provider and key are server-side configuration |
+| Testing | pytest + pytest-asyncio + httpx (backend), Playwright (browser verification) |
+
+## Screenshots
+
+Screenshots in the first table come from the **real backend and database** (development data). Those in the second table are rendered by the **real frontend against labelled synthetic API fixtures** (`docs/verification/verify_phase_06.cjs`, which blocks every external request), so they show the actual interface but not live measurements. Fixture images were regenerated from this release's code.
+
+| Real backend | |
+|---|---|
+| ![Campus manager](docs/verification/screenshots/campus_manager_desktop.png) | ![AI Copilot answering through the live FreeLLM gateway](docs/verification/screenshots/copilot_fix_success_desktop.png) |
+| Campus manager: hierarchy and calibrated floor plan | AI Copilot streaming a reply through the live gateway |
+
+| Fixture-backed renders of the real UI | |
+|---|---|
+| ![Dashboard](docs/verification/screenshots/fixture_dashboard_desktop.png) | ![Speed test](docs/verification/screenshots/fixture_speed_test_desktop.png) |
+| Command Center with verification-state card | Internet speed test |
+| ![Heatmaps](docs/verification/screenshots/fixture_heatmaps_desktop.png) | ![ML Lab](docs/verification/screenshots/fixture_ml_lab_desktop.png) |
+| Wi-Fi heatmap studio | ML Lab |
+| ![Diagnostics](docs/verification/screenshots/fixture_diagnostics_desktop.png) | ![Analyst](docs/verification/screenshots/fixture_analyst_ask_desktop.png) |
+| Network diagnostics | Analyst: evidence-cited answer |
+
+Mobile layouts (390 px) are in [`docs/verification/screenshots/`](docs/verification/screenshots/).
+
+## Installation and execution
+
+Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), a current Node.js LTS, PostgreSQL 16 (Docker Compose is provided).
+
+```bash
+git clone https://github.com/tej-1916/airgrid.git && cd airgrid
+cp .env.example .env              # then set a unique AIRGRID_SECRET_KEY (>= 32 chars); never commit .env
+docker compose up -d postgres     # or point DATABASE_URL at your own PostgreSQL
+
+# Backend
+cd apps/api
+uv sync --extra dev
+uv run alembic upgrade head       # inspect `alembic current` first if the database already holds data
+AIRGRID_BOOTSTRAP_PASSWORD='<choose a strong password>' \
+  uv run python -m airgrid.cli bootstrap-admin --email you@example.com   # or omit the variable to be prompted
+uv run uvicorn airgrid.main:app --host 127.0.0.1 --port 8000
+
+# Frontend (second terminal)
+cd apps/web && npm ci && npm run dev    # http://127.0.0.1:5173
+```
+
+Liveness: `/healthz`. Detailed health: `/api/v1/health`. The AI features need an OpenAI-compatible endpoint and key in `.env` (see [AI Gateway configuration](#ai-gateway-configuration)); everything else works without one.
+
+## Tested AI Copilot functionality
+
+The Copilot is the AI chat workspace at `/ai-copilot`. Verified behavior:
+
+- **Streaming through a real provider.** With the FreeLLM gateway configured, a question ("Which signal level in dBm is considered borderline?") streamed a reply from the provider-reported model, shown in the interface with its latency (screenshot above). The model name displayed is the one the provider reports, not the `auto` alias.
+- **Timeout and failure handling.** A provider-timeout bug was diagnosed and fixed. The stream now makes at most one bounded retry (transient errors only, and only before any output), returns a structured recoverable error, stores it as an error message that is excluded from later model context, and offers **Retry** without saving the user message twice (`test_copilot_provider_resilience.py`, plus before/after screenshots `copilot_fix_error_retry_desktop.png` and `copilot_fix_retry_success_desktop.png`).
+- **Isolation.** Conversations are owner-scoped; one user cannot list, read or write another user's conversation (`test_copilot_tenant_isolation.py`).
+- **Context.** Optional inclusion of the caller's own campus telemetry and speed tests as grounding context.
+- **Not claimed:** model identity is provider-reported and not independently verified; free-tier provider availability and latency vary; one test that calls the live provider (`test_freellmapi_integration.py`) is skipped when no `.env` is present.
+
+## Testing and verification evidence
+
+Run on the release commit (see [`SUBMISSION_EVIDENCE.md`](docs/submission/SUBMISSION_EVIDENCE.md) for the exact commit and output):
+
+| Check | Result |
+|---|---|
+| Backend tests (`pytest`, isolated `airgrid_test_db`) | **242 passed, 1 skipped, 0 failed** (the skip is the live-provider test, which needs a `.env`) |
+| Authorization regression tests (`tests/test_authz_remediation.py`, synthetic data) | 8 tests; each failed on the unfixed code and passes now |
+| Frontend production build (`npm run build`) | succeeds (Vite warns about a large JS chunk; not an error) |
+| Browser verification (`verify_phase_06.cjs`) | passed: 10 routes, 2 viewport widths, 0 page errors, 15 external requests blocked, 0 live probes |
+
+```bash
+apps/api/.venv/bin/python -m pytest            # from apps/api; forces airgrid_test_db
+npm --prefix apps/web run build
+AIRGRID_PLAYWRIGHT_MODULE=/path/to/playwright node docs/verification/verify_phase_06.cjs   # needs dev server on :5187
+```
+
+### Security review outcome
+
+An automated review of an earlier push reported authorization problems. Each was reproduced by a failing test before being fixed: campus-less diagnostics reports and snapshots, survey comparison, ML prediction maps / promotion / deletion / listing, analyst history and evidence scoping, collector observations, speed-test history, and (found during the final audit) the dashboard inventory, summary and activity feed. The review said "8 issues" but only itemized some of them; the rest were covered by sweeping for the same fail-open pattern, so a finding that does not match the list above should be re-submitted. This is **not** a penetration test or a security certification.
+
+## Project demonstration
+
+1. Sign in at `/auth/login` with the administrator you bootstrapped.
+2. **Campus manager**: create a campus, building and floor; upload a floor plan and calibrate its scale.
+3. **Speed test**: tick the consent box, start a test, and see it appear in the persisted history.
+4. **Heatmaps**: start a survey session, click the plan to record manual points, generate the heatmap and run validation; observe the support mask and the "operator reported" labels.
+5. **Diagnostics**: with `AIRGRID_COLLECTOR_ENABLED=true` on a Linux host, collect a snapshot, analyze it, and read the deterministic findings.
+6. **AI Analyst / Copilot** (needs an AI key): ask a question and open the cited records; try the Copilot and use **Retry** after stopping the provider.
+7. Sign in as a second, unassigned user to see that other campuses' data, history and activity are not visible.
+
+## Known limitations
+
+- Items listed under *Implemented, with known limitations* above apply.
+- **Dependencies.** At the time of release GitHub Dependabot listed open advisories, mainly in development tooling (Vite, esbuild) and a React Router server-rendering path that this client-side application does not use. Python packages with known advisories (Pillow, certifi, dnspython, opentelemetry-api) were upgraded in this release; remaining items are tracked in [`SUBMISSION_EVIDENCE.md`](docs/submission/SUBMISSION_EVIDENCE.md).
+- **Privacy of earlier documentation.** Some early screenshots and acceptance notes in `docs/` were captured on the developer's own machine and may show a local hostname, device address or Wi-Fi name. They remain in Git history, which was deliberately not rewritten.
+- No production deployment exists; the project has only been run in local development.
+- UI placeholder pages (*Devices*, *Monitor*, *Alerts*, *Reports*) do not use backend data and must not be read as implemented features.
+
+## Future work
+
+Continuous monitoring and alerting; physical field acceptance survey and published accuracy of the spatial models; API-backed device, alert and report pages; shared rate-limit store and multi-worker deployment; CI with dependency and security scanning; optional 3D campus visualization; broader provider support for the AI gateway.
+
+## Reference: measurement integrity and limitations
 
 - Manual observations remain `operator_reported`. Controlled imports, estimates and predictions never become training or optimization evidence. `field_instrument_verified` survey points are created **only** by placing a fresh (≤ 15 min), complete, server-owned instrument snapshot at an operator-chosen position on a calibrated plan. Position is never inferred from signal strength or browser APIs.
 - The application database currently has **zero instrument-verified survey observations** and no registered collectors. Operational ML training is therefore correctly unavailable; test models use isolated fixtures.
@@ -31,32 +186,9 @@ The application is a modular monolith: React **18**, TypeScript, Vite and Tailwi
 - Diagnostics use documented heuristic thresholds and do not establish congestion, AP faults, WAN bottlenecks or causes from a single sample. The Analyst states missing evidence instead of guessing.
 - Candidate AP markers are speculative annotations stored with versions and authors. No wall attenuation, transmit power, physical accessibility or numerical gain is inferred; registered APs are entered manually and unknown transmit power stays unknown.
 - Retention never runs automatically. Administrators set a policy, preview the count and apply it with that count; snapshots linked to saved reports or survey points are protected.
-- There is no per-user campus membership model: any authenticated user can read all campuses. Mutations are role-restricted (administrator / network_engineer) and CSRF-protected.
+- Access is campus-scoped: non-administrators see only campuses they are members of; campus-less records (reports, snapshots, speed tests, analysis history) are visible only to their owner; administrators see everything. Mutations are role-restricted and CSRF-protected. Enforced in the backend (migration `0012_campus_access_control`).
 - Rate limits (login, AI gateway, iperf, collector ingest) are per process. A shared store is needed before running multiple API workers.
 - Dedicated automation product routes/navigation are removed. Internal webhook signing remains for application infrastructure; no scheduled network actions are enabled.
-
-## Local startup
-
-Use the existing root `.env` as appropriate; never commit it. Configuration is read relative to the process working directory, so export required values when starting commands in a subdirectory. Keep the API on loopback for local development. `AIRGRID_SECRET_KEY` must be unique and ≥ 32 characters for collector credentials to be issued.
-
-```bash
-# Backend dependencies (existing uv.lock)
-cd apps/api
-uv sync --extra dev
-# Inspect before applying migrations to a database with genuine data:
-uv run alembic current
-uv run alembic heads
-uv run uvicorn airgrid.main:app --host 127.0.0.1 --port 8000
-```
-
-```bash
-# Frontend, in another terminal
-cd apps/web
-npm ci
-npm run dev
-```
-
-The default browser URL is `http://127.0.0.1:5173`. Liveness is `/healthz`; detailed health is `/api/v1/health`. `docker compose up -d` is available for local services. Migration head is **`0011_optimization_plans`**; migrations 0008–0011 are additive and were applied to the local application database after a `pg_dump` backup (see [completion progress](docs/development/CLAUDE_COMPLETION_PROGRESS.md)). `alembic check` is clean.
 
 ## Collector configuration
 
@@ -86,20 +218,6 @@ Every generation requires explicit per-request approval. Report prioritization s
 
 The AI Copilot chat stream is separate from analyst generations: it makes at most `AIRGRID_AI_MAX_RETRIES` (default 1) retry for transient failures (timeout, connection error, HTTP 408/429/5xx) and only before any output was produced, optionally on a gateway-listed `AIRGRID_AI_FALLBACK_MODEL`. Failures are returned as recoverable errors with a code, stored as error messages (excluded from later model context), and `retry: true` re-runs the last user message without saving it twice. The displayed model is the provider-reported executing model, not the `auto` alias.
 
-## Verification
-
-```bash
-# Repository root: pytest forces airgrid_test_db before importing the app.
-apps/api/.venv/bin/python -m pytest
-npm --prefix apps/web run build
-# Uses an installed/cached Playwright package and Chromium; no production API calls:
-AIRGRID_PLAYWRIGHT_MODULE=/path/to/playwright node docs/verification/verify_phase_06.cjs
-```
-
-The browser script expects a frontend at `http://127.0.0.1:5187` (override `AIRGRID_BROWSER_URL`), intercepts API calls with labeled fixtures, and blocks external requests. Start it with `npm --prefix apps/web run dev -- --host 127.0.0.1 --port 5187`. It never logs in with production credentials, runs live probes, trains campus models or invokes external AI.
-
-See [completion progress](docs/development/CLAUDE_COMPLETION_PROGRESS.md), [recovery instructions](docs/development/RESUME_FROM_HERE.md), [baseline evidence](docs/verification/AUTONOMOUS_BUILD_BASELINE.md) and [system architecture](docs/architecture/SYSTEM_ARCHITECTURE.md). Phase acceptance limits are in the Phase 05–08 handoffs; historical completion claims are not a substitute for these results.
-
 ## AI Development Credits
 
 AirGrid is owned, directed and maintained by its repository owner (**tej-1916**), who sets the requirements, reviews the work and decides what ships. All commits remain authored under the owner's account.
@@ -114,3 +232,5 @@ AirGrid is owned, directed and maintained by its repository owner (**tej-1916**)
 - The AI Copilot provider-failure fix: bounded retry, structured recoverable errors, duplicate-free retry, real stream cancellation, and the accompanying resilience tests.
 
 Commits with material Claude Code contribution carry a standard `Co-Authored-By: Claude … <noreply@anthropic.com>` trailer (`git log --grep="Co-Authored-By: Claude"`). AI-assisted code is held to the same verification standard as any other change: see the limits and results in the documents above, which do not treat AI-written claims as evidence.
+
+**Version 1.0 submission work (November 2026).** Claude Code also performed the authorization remediation (regression tests first, then fixes), the dashboard scoping fix found during the final audit, the Python dependency upgrades, regenerated verification screenshots, the architecture figures, this README and the project report under `docs/submission/`. The repository owner reviews and decides what is published; AI-written statements in these documents were checked against code, tests and recorded output before inclusion.
