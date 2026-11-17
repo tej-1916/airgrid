@@ -17,6 +17,7 @@ export const AICopilotPage: React.FC = () => {
   const [streamingModel, setStreamingModel] = useState('');
   const [abortFn, setAbortFn] = useState<(() => void) | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retryable, setRetryable] = useState<{ content: string; options?: { model?: string; includeNetworkContext?: boolean } } | null>(null);
 
   const loadInitialData = async () => {
     setLoading(true);
@@ -177,24 +178,39 @@ export const AICopilotPage: React.FC = () => {
 
   const handleSendMessage = async (
     content: string,
-    options?: { model?: string; includeNetworkContext?: boolean }
+    options?: { model?: string; includeNetworkContext?: boolean },
+    retry = false
   ) => {
     if (!activeId) return;
     setError(null);
+    setRetryable(null);
 
-    // Optimistically add user message to conversation
-    const optimisticUserMsg = {
-      id: `temp-${Date.now()}`,
-      conversation_id: activeId,
-      role: 'user' as const,
-      content,
-      status: 'completed' as const,
-      created_at: new Date().toISOString(),
-    };
-
-    setActiveConversation((prev) =>
-      prev ? { ...prev, messages: [...prev.messages, optimisticUserMsg] } : prev
-    );
+    if (retry) {
+      // Server re-runs the stored user message and deletes the failed reply: drop it locally too.
+      setActiveConversation((prev) =>
+        prev
+          ? {
+              ...prev,
+              messages: prev.messages.filter(
+                (m, i) => !(i === prev.messages.length - 1 && m.role === 'assistant' && m.status === 'error')
+              ),
+            }
+          : prev
+      );
+    } else {
+      // Optimistically add user message to conversation
+      const optimisticUserMsg = {
+        id: `temp-${Date.now()}`,
+        conversation_id: activeId,
+        role: 'user' as const,
+        content,
+        status: 'completed' as const,
+        created_at: new Date().toISOString(),
+      };
+      setActiveConversation((prev) =>
+        prev ? { ...prev, messages: [...prev.messages, optimisticUserMsg] } : prev
+      );
+    }
 
     setIsStreaming(true);
     setStreamingContent('');
@@ -246,7 +262,7 @@ export const AICopilotPage: React.FC = () => {
               c.id === activeId
                 ? {
                     ...c,
-                    message_count: c.message_count + 2,
+                    message_count: c.message_count + (retry ? 1 : 2),
                     last_message_preview: (doneData.content || accumulated).slice(0, 60),
                     updated_at: new Date().toISOString(),
                   }
@@ -259,10 +275,34 @@ export const AICopilotPage: React.FC = () => {
           setStreamingContent('');
           setAbortFn(null);
           setError(err.message);
+          if (err.recoverable) setRetryable({ content, options });
+          // Mirror the error row the server saved so the failed turn stays visible (and reopens identically).
+          if (err.messageId) {
+            setActiveConversation((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    messages: [
+                      ...prev.messages,
+                      {
+                        id: err.messageId as string,
+                        conversation_id: activeId,
+                        role: 'assistant' as const,
+                        content: err.partialContent || 'The AI provider did not return a response. You can retry.',
+                        model_used: err.model,
+                        status: 'error' as const,
+                        error_message: err.message,
+                        created_at: new Date().toISOString(),
+                      },
+                    ],
+                  }
+                : prev
+            );
+          }
         },
       },
       undefined,
-      options
+      { ...options, retry }
     );
 
     setAbortFn(() => stop);
@@ -297,9 +337,19 @@ export const AICopilotPage: React.FC = () => {
       {error && (
         <div className="p-2.5 bg-red-50 border-b border-red-200 text-red-800 text-xs flex items-center justify-between px-4">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="font-bold underline text-[11px]">
-            Dismiss
-          </button>
+          <span className="flex gap-3">
+            {retryable && !isStreaming && (
+              <button
+                onClick={() => handleSendMessage(retryable.content, retryable.options, true)}
+                className="font-bold underline text-[11px]"
+              >
+                Retry
+              </button>
+            )}
+            <button onClick={() => setError(null)} className="font-bold underline text-[11px]">
+              Dismiss
+            </button>
+          </span>
         </div>
       )}
       <div className="flex flex-1 min-h-0 overflow-hidden">

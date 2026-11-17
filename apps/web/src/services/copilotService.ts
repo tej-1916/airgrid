@@ -1,6 +1,14 @@
 import { apiRequest } from './api';
 import { Conversation, ConversationSummary, ChatMessage, GatewayStatus, Citation } from '../types/copilot';
 
+export interface StreamError extends Error {
+  code?: string;
+  recoverable?: boolean;
+  messageId?: string;
+  partialContent?: string;
+  model?: string;
+}
+
 const LOCAL_STORAGE_KEY = 'airgrid_copilot_chat_sessions_v1';
 
 function getCsrfTokenFromCookie(): string | null {
@@ -279,103 +287,113 @@ Respond in well-structured markdown with bullet points and clear technical reaso
     callbacks: {
       onChunk: (piece: string, model?: string) => void;
       onDone: (data: { message_id?: string; content: string; model?: string; duration_ms?: number; citations?: any[] }) => void;
-      onError: (error: Error) => void;
+      onError: (error: StreamError) => void;
     },
     signal?: AbortSignal,
-    options?: { model?: string; includeNetworkContext?: boolean }
+    options?: { model?: string; includeNetworkContext?: boolean; retry?: boolean }
   ): () => void {
+    // Aborting the fetch closes the SSE connection; the server then closes the upstream provider request.
+    const controller = new AbortController();
+    signal?.addEventListener('abort', () => controller.abort());
     let cancelled = false;
+    // Exactly one terminal callback (done/error) is ever delivered.
+    let finished = false;
+    const fail = (message: string, extra: Partial<StreamError> = {}) => {
+      if (finished || cancelled) return;
+      finished = true;
+      callbacks.onError(Object.assign(new Error(message), extra));
+    };
 
     (async () => {
       try {
-        // Check if server SSE endpoint is accessible
-        const headers = new Headers({
-          'Content-Type': 'application/json',
-          Accept: 'text/event-stream',
-        });
+        const headers = new Headers({ 'Content-Type': 'application/json', Accept: 'text/event-stream' });
         const csrfToken = getCsrfTokenFromCookie();
         if (csrfToken) headers.set('X-CSRF-Token', csrfToken);
 
+        // No silent fallback to other endpoints: re-posting would save the user message twice.
         const response = await fetch(`/api/v1/ai/copilot/conversations/${conversationId}/messages/stream`, {
           method: 'POST',
           credentials: 'include',
           headers,
-          signal,
+          signal: controller.signal,
           body: JSON.stringify({
             content,
             model: options?.model,
             include_network_context: options?.includeNetworkContext ?? true,
+            retry: options?.retry ?? false,
           }),
-        }).catch(() => null);
+        });
 
-        if (response && response.ok && response.headers.get('content-type')?.includes('text/event-stream')) {
-          const reader = response.body?.getReader();
-          if (reader) {
-            const decoder = new TextDecoder('utf-8');
-            let buffer = '';
-            while (!cancelled) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split('\n');
-              buffer = lines.pop() || '';
-              for (const line of lines) {
-                const trimmed = line.trim();
-                if (!trimmed.startsWith('data: ')) continue;
-                try {
-                  const event = JSON.parse(trimmed.slice(6));
-                  if (event.type === 'chunk') {
-                    callbacks.onChunk(event.content || '', event.model);
-                  } else if (event.type === 'done') {
-                    callbacks.onDone(event);
-                    return;
-                  } else if (event.type === 'error') {
-                    callbacks.onError(new Error(event.error));
-                    return;
-                  }
-                } catch {
-                  // ignore
-                }
-              }
+        if (!response.ok || !response.body) {
+          let detail = '';
+          try {
+            const body = await response.json();
+            detail = typeof body?.detail === 'string' ? body.detail : '';
+          } catch {
+            // non-JSON error body
+          }
+          const unreachable = response.status >= 502 && response.status <= 504;
+          fail(
+            detail ||
+              (unreachable
+                ? 'The AirGrid API is not reachable. Check that the backend is running, then retry.'
+                : `The server rejected the request (HTTP ${response.status}).`),
+            { code: `http_${response.status}`, recoverable: response.status >= 500 }
+          );
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        while (!cancelled && !finished) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('data: ')) continue;
+            let event: any;
+            try {
+              event = JSON.parse(trimmed.slice(6));
+            } catch {
+              continue;
             }
-            return;
+            if (event.type === 'chunk') {
+              callbacks.onChunk(event.content || '', event.model);
+            } else if (event.type === 'done') {
+              finished = true;
+              callbacks.onDone(event);
+              return;
+            } else if (event.type === 'error') {
+              fail(event.error || 'The AI provider failed.', {
+                code: event.code,
+                recoverable: event.recoverable !== false,
+                messageId: event.message_id,
+                partialContent: event.content,
+                model: event.model,
+              });
+              return;
+            }
           }
         }
-
-        // Fallback: Real inference via /api/v1/ai/generate with typewriter streaming
-        if (cancelled) return;
-        const resultMsg = await this.sendMessage(conversationId, content, options);
-
-        if (cancelled) return;
-        const fullText = resultMsg.content;
-        const modelName = resultMsg.model_used || options?.model || 'auto';
-
-        // Deliver words smoothly via typewriter stream
-        const tokens = fullText.split(/(\s+)/);
-        let delivered = '';
-        for (let i = 0; i < tokens.length; i++) {
-          if (cancelled) return;
-          delivered += tokens[i];
-          callbacks.onChunk(tokens[i], modelName);
-          await new Promise((resolve) => setTimeout(resolve, 15));
-        }
-
-        callbacks.onDone({
-          message_id: resultMsg.id,
-          content: fullText,
-          model: modelName,
-          duration_ms: resultMsg.duration_ms || 350,
-          citations: resultMsg.citations || [],
-        });
+        fail('The connection was interrupted before the response finished.', { code: 'interrupted', recoverable: true });
       } catch (err: any) {
-        if (!cancelled) {
-          callbacks.onError(err instanceof Error ? err : new Error(String(err)));
-        }
+        if (cancelled || err?.name === 'AbortError') return;
+        fail(
+          err instanceof TypeError
+            ? 'Cannot reach the AirGrid API. Check that the backend is running, then retry.'
+            : String(err?.message || err),
+          { code: 'network', recoverable: true }
+        );
       }
     })();
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   },
 };

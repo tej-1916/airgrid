@@ -89,6 +89,8 @@ class Settings(BaseSettings):
     AIRGRID_AI_API_KEY: str = ""
     AIRGRID_AI_DEFAULT_MODEL: str = ""
     AIRGRID_AI_TIMEOUT_SECONDS: int = Field(default=30, ge=1, le=60)
+    AIRGRID_AI_MAX_RETRIES: int = Field(default=1, ge=0, le=2)  # transient failures before any output only
+    AIRGRID_AI_FALLBACK_MODEL: str = ""  # used on retry only if the gateway lists it
     AIRGRID_AI_TEMPERATURE: float = 0.2
 
     # n8n Automation & Webhook

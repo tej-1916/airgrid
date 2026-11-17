@@ -23,6 +23,7 @@ class ChatMessageCreate(BaseModel):
     content: str = Field(min_length=1, max_length=4000)
     model: Optional[str] = Field(default=None, max_length=100)
     include_network_context: bool = True
+    retry: bool = False  # re-run the last user message instead of saving a new one
 
 
 class ChatMessageResponse(BaseModel):

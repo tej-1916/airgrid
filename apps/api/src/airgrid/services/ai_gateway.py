@@ -1,4 +1,6 @@
-"""Bounded OpenAI-compatible transport. No tools, retries or implicit calls."""
+"""Bounded OpenAI-compatible transport. No tools or implicit calls; chat streaming retries only
+pre-output transient failures (AIRGRID_AI_MAX_RETRIES)."""
+import asyncio
 import time
 import uuid
 from collections import deque
@@ -18,6 +20,9 @@ class AIGatewayService:
         self.api_key = settings.AIRGRID_AI_API_KEY
         self.default_model = settings.AIRGRID_AI_DEFAULT_MODEL
         self.timeout = settings.AIRGRID_AI_TIMEOUT_SECONDS
+        self.max_retries = settings.AIRGRID_AI_MAX_RETRIES
+        self.fallback_model = settings.AIRGRID_AI_FALLBACK_MODEL
+        self.retry_backoff = 0.5
         self._requests = deque()
         self._active_model: Optional[str] = None
         self.available_models: list[str] = []
@@ -83,7 +88,7 @@ class AIGatewayService:
             "execution_identity": "Provider-reported only; not independently verified",
             "privacy_status": "Operator consent required per request. Network names, addresses, device names and plans excluded.",
             "default_mode": "deterministic",
-            "retry_limit": 0,
+            "retry_limit": self.max_retries,
             "max_completion_tokens": 1024,
         }
 
@@ -356,128 +361,114 @@ class AIGatewayService:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
     ):
-        """Async generator streaming OpenAI-compatible chat chunks with automatic non-streaming fallback."""
+        """Stream OpenAI-compatible chat chunks.
+
+        Retries (bounded) only transient failures that happen before any output was produced, so a retry
+        can never duplicate or splice text. Closing this generator closes the upstream request.
+        Terminal event is exactly one of: {"type": "done"} or {"type": "error", code, recoverable}.
+        """
         import json as pyjson
 
         started = time.perf_counter()
         requested = model or self.active_model
 
+        def error(code, message, recoverable, used=requested, attempts=0, partial=False):
+            self.last_failure = message
+            return {"type": "error", "error": message, "code": code, "recoverable": recoverable,
+                    "model": used, "attempts": attempts, "partial": partial}
+
         if not self.is_configured():
-            yield {
-                "type": "error",
-                "error": "AI Gateway is disabled or unconfigured.",
-                "model": requested,
-            }
+            yield error("unconfigured", "AI Gateway is disabled or unconfigured.", False)
             return
 
-        # Rate limiting
+        # Rate limiting: one slot per user request, not per retry attempt
         now = time.monotonic()
         while self._requests and self._requests[0] <= now - 60:
             self._requests.popleft()
         if len(self._requests) >= 20:
-            yield {
-                "type": "error",
-                "error": "Rate limit exceeded (max 20 chat queries per minute). Please wait a moment.",
-                "model": requested,
-            }
+            yield error("rate_limited", "Rate limit exceeded (max 20 chat queries per minute). Please wait a moment.", True)
             return
         self._requests.append(now)
 
         headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
-        payload = {
-            "model": requested,
-            "messages": messages,
-            "temperature": temperature if temperature is not None else settings.AIRGRID_AI_TEMPERATURE,
-            "max_tokens": min(max_tokens or 1024, 2048),
-            "stream": True,
-        }
+        # read timeout applies between chunks, so it is effectively the time-to-first-token / stall limit
+        timeout = httpx.Timeout(self.timeout, connect=5)
+        attempts = 1 + self.max_retries
+        fallback = self.fallback_model if self.fallback_model in self.available_models else None
+        transient_http = {408, 429, 500, 502, 503, 504}
 
-        full_content = []
-        actual_model = requested
-        stream_successful = False
+        for attempt in range(attempts):
+            use_model = fallback if attempt and fallback else requested
+            payload = {
+                "model": use_model,
+                "messages": messages,
+                "temperature": temperature if temperature is not None else settings.AIRGRID_AI_TEMPERATURE,
+                "max_tokens": min(max_tokens or 1024, 2048),
+                "stream": True,
+            }
+            actual_model = use_model
+            full_content: list[str] = []
+            failure = None  # (code, message, transient)
 
-        try:
-            async with httpx.AsyncClient(timeout=self.timeout, follow_redirects=False) as client:
-                async with client.stream(
-                    "POST", f"{self.base_url}/chat/completions", headers=headers, json=payload
-                ) as response:
-                    if response.status_code == 200:
-                        async for raw_line in response.aiter_lines():
-                            line = raw_line.strip()
-                            if not line:
-                                continue
-                            if line == "data: [DONE]":
-                                break
-                            if line.startswith("data: "):
+            try:
+                async with httpx.AsyncClient(timeout=timeout, follow_redirects=False) as client:
+                    async with client.stream(
+                        "POST", f"{self.base_url}/chat/completions", headers=headers, json=payload
+                    ) as response:
+                        if response.status_code != 200:
+                            code = response.status_code
+                            failure = (f"provider_http_{code}", f"Provider returned HTTP {code}.", code in transient_http)
+                        else:
+                            async for raw_line in response.aiter_lines():
+                                line = raw_line.strip()
+                                if line == "data: [DONE]":
+                                    break
+                                if not line.startswith("data: "):
+                                    continue
                                 try:
                                     chunk = pyjson.loads(line[6:])
-                                    if "model" in chunk and chunk["model"]:
+                                    if chunk.get("model"):
                                         actual_model = chunk["model"]
                                         if self.api_key:
                                             actual_model = actual_model.replace(self.api_key, "[REDACTED]")
-                                    choices = chunk.get("choices", [])
-                                    if choices:
-                                        delta = choices[0].get("delta", {})
-                                        content_piece = delta.get("content", "")
-                                        if content_piece:
-                                            if self.api_key:
-                                                content_piece = content_piece.replace(self.api_key, "[REDACTED]")
-                                            full_content.append(content_piece)
-                                            stream_successful = True
-                                            yield {
-                                                "type": "chunk",
-                                                "content": content_piece,
-                                                "model": actual_model,
-                                            }
-                                except Exception:
+                                    choices = chunk.get("choices") or []
+                                    piece = (choices[0].get("delta") or {}).get("content") if choices else None
+                                except (ValueError, AttributeError, TypeError, IndexError):
                                     continue
-                    else:
-                        # Non-200 streaming response, will trigger fallback below
-                        pass
-        except Exception:
-            # Streaming failed or timed out
-            pass
+                                if piece:
+                                    if self.api_key:
+                                        piece = piece.replace(self.api_key, "[REDACTED]")
+                                    full_content.append(piece)
+                                    yield {"type": "chunk", "content": piece, "model": actual_model}
+            except httpx.TimeoutException:
+                failure = ("timeout", "Provider request timed out.", True)
+            except httpx.HTTPError:
+                failure = ("unavailable", "AI Gateway is unreachable or the connection dropped.", True)
 
-        # If streaming yielded content, finish with "done"
-        if stream_successful and full_content:
-            duration_ms = int((time.perf_counter() - started) * 1000)
-            self.last_latency_ms = duration_ms
-            self.last_success = datetime.now(timezone.utc).isoformat()
-            yield {
-                "type": "done",
-                "content": "".join(full_content),
-                "model": actual_model,
-                "requested_model": requested,
-                "duration_ms": duration_ms,
-            }
+            if failure is None and full_content:
+                duration_ms = int((time.perf_counter() - started) * 1000)
+                self.last_latency_ms = duration_ms
+                self.last_success = datetime.now(timezone.utc).isoformat()
+                yield {
+                    "type": "done",
+                    "content": "".join(full_content),
+                    "model": actual_model,  # provider-reported executing model, never the "auto" alias
+                    "requested_model": requested,
+                    "fallback_used": use_model != requested,
+                    "attempts": attempt + 1,
+                    "duration_ms": duration_ms,
+                }
+                return
+
+            code, message, transient = failure or ("empty_response", "Provider returned no content.", True)
+            if full_content:  # partial output already shown: never retry, surface truncation
+                yield error(code, message, True, actual_model, attempt + 1, partial=True)
+                return
+            if transient and attempt + 1 < attempts:
+                await asyncio.sleep(self.retry_backoff)
+                continue
+            yield error(code, message, transient, actual_model, attempt + 1)
             return
-
-        # Fallback to non-streaming execution if streaming failed or yielded no tokens
-        fallback_res = await self.generate_chat(
-            messages=messages, model=requested, temperature=temperature, max_tokens=max_tokens
-        )
-        if fallback_res.get("ok"):
-            text = fallback_res.get("content", "")
-            reported_model = fallback_res.get("model", requested)
-            # Yield single full chunk then done
-            yield {
-                "type": "chunk",
-                "content": text,
-                "model": reported_model,
-            }
-            yield {
-                "type": "done",
-                "content": text,
-                "model": reported_model,
-                "requested_model": requested,
-                "duration_ms": fallback_res.get("duration_ms", 0),
-            }
-        else:
-            yield {
-                "type": "error",
-                "error": fallback_res.get("error", "Unable to complete AI response."),
-                "model": requested,
-            }
 
 
 ai_gateway = AIGatewayService()

@@ -1,5 +1,7 @@
 import json
+import logging
 import time
+from contextlib import aclosing
 import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -31,6 +33,7 @@ from airgrid.services.copilot_service import (
     sanitize_text,
 )
 
+logger = logging.getLogger("airgrid")
 router = APIRouter(prefix="/copilot", tags=["AirGrid AI Copilot"])
 
 
@@ -293,19 +296,31 @@ async def stream_message(
     if conv.campus_id and user.role != "administrator":
         await require_campus_access(db, user, conv.campus_id)
 
-    # 1. Save user message
-    user_content_clean = sanitize_text(req.content.strip())
-    user_msg = AIChatMessage(
-        conversation_id=conv.id,
-        role="user",
-        content=user_content_clean,
-        status="completed",
-    )
-    db.add(user_msg)
-    if conv.title in ("New Conversation", "AirGrid Copilot Chat"):
-        conv.title = user_content_clean[:45] + ("..." if len(user_content_clean) > 45 else "")
-    conv.updated_at = datetime.now(timezone.utc)
-    await db.commit()
+    # 1. Save user message (or, on retry, re-run the stored one and drop the failed reply: no duplicates)
+    if req.retry:
+        tail_res = await db.execute(
+            select(AIChatMessage)
+            .where(AIChatMessage.conversation_id == conv.id)
+            .order_by(desc(AIChatMessage.created_at))
+            .limit(3)
+        )
+        tail = list(tail_res.scalars().all())  # newest first
+        failed = []
+        while tail and tail[0].role == "assistant" and tail[0].status == "error":
+            failed.append(tail.pop(0))
+        if not tail or tail[0].role != "user":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to retry in this conversation.")
+        for m in failed:
+            await db.delete(m)
+        conv.updated_at = datetime.now(timezone.utc)
+        await db.commit()
+    else:
+        user_content_clean = sanitize_text(req.content.strip())
+        db.add(AIChatMessage(conversation_id=conv.id, role="user", content=user_content_clean, status="completed"))
+        if conv.title in ("New Conversation", "AirGrid Copilot Chat"):
+            conv.title = user_content_clean[:45] + ("..." if len(user_content_clean) > 45 else "")
+        conv.updated_at = datetime.now(timezone.utc)
+        await db.commit()
 
     # 2. Gather network context
     context_text = ""
@@ -321,33 +336,34 @@ async def stream_message(
         accumulated_text = []
         actual_model = chosen_model
         started = time.perf_counter()
+        terminal = {"type": "error", "error": "No response was produced.", "code": "no_response", "recoverable": True}
 
+        # aclosing: if the client disconnects/cancels, the upstream provider request is closed immediately
         try:
-            async for chunk in ai_gateway.generate_chat_stream(messages=chat_messages, model=chosen_model):
-                chunk_type = chunk.get("type")
-                if chunk_type == "chunk":
-                    piece = chunk.get("content", "")
-                    if piece:
-                        accumulated_text.append(piece)
-                        if "model" in chunk:
-                            actual_model = chunk["model"]
-                        data_payload = json.dumps({"type": "chunk", "content": piece, "model": actual_model})
-                        yield f"data: {data_payload}\n\n"
-                elif chunk_type == "error":
-                    err_msg = chunk.get("error", "Error generating response.")
-                    data_payload = json.dumps({"type": "error", "error": err_msg, "model": actual_model})
-                    yield f"data: {data_payload}\n\n"
-                elif chunk_type == "done":
-                    if "model" in chunk:
-                        actual_model = chunk["model"]
-                    break
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+            async with aclosing(ai_gateway.generate_chat_stream(messages=chat_messages, model=chosen_model)) as stream:
+                async for chunk in stream:
+                    chunk_type = chunk.get("type")
+                    if chunk_type == "chunk":
+                        piece = chunk.get("content", "")
+                        if piece:
+                            accumulated_text.append(piece)
+                            actual_model = chunk.get("model") or actual_model
+                            yield f"data: {json.dumps({'type': 'chunk', 'content': piece, 'model': actual_model})}\n\n"
+                    elif chunk_type in ("done", "error"):
+                        terminal = chunk
+                        actual_model = chunk.get("model") or actual_model
+                        break
+        except Exception:
+            logger.exception("Copilot stream failed unexpectedly")
+            terminal = {"type": "error", "error": "Unexpected error while generating the response.", "code": "internal", "recoverable": True}
 
         duration_ms = int((time.perf_counter() - started) * 1000)
         final_content = "".join(accumulated_text)
+        ok = terminal.get("type") == "done"
+        code = terminal.get("code")
+        # Never invent output: a failed turn is stored as an error row with the real reason.
+        saved_content = final_content if (ok or final_content) else "The AI provider did not return a response. You can retry."
 
-        # 3. Persist assistant message in DB using a new session
         from airgrid.core.database import AsyncSessionLocal
         saved_msg_id = None
         if AsyncSessionLocal:
@@ -355,27 +371,43 @@ async def stream_message(
                 assistant_msg = AIChatMessage(
                     conversation_id=conv.id,
                     role="assistant",
-                    content=final_content or "No response generated.",
+                    content=saved_content,
                     model_used=actual_model,
                     duration_ms=duration_ms,
                     citations=citations,
-                    status="completed" if final_content else "error",
+                    status="completed" if ok else "error",
+                    error_message=None if ok else code,
                 )
                 session.add(assistant_msg)
                 await session.commit()
                 await session.refresh(assistant_msg)
                 saved_msg_id = str(assistant_msg.id)
 
-        done_payload = json.dumps({
-            "type": "done",
-            "message_id": saved_msg_id,
-            "content": final_content,
-            "model": actual_model,
-            "requested_model": chosen_model,
-            "duration_ms": duration_ms,
-            "citations": citations,
-        })
-        yield f"data: {done_payload}\n\n"
+        if ok:
+            payload = {
+                "type": "done",
+                "message_id": saved_msg_id,
+                "content": final_content,
+                "model": actual_model,
+                "requested_model": chosen_model,
+                "fallback_used": terminal.get("fallback_used", False),
+                "duration_ms": duration_ms,
+                "citations": citations,
+            }
+        else:
+            payload = {
+                "type": "error",
+                "message_id": saved_msg_id,
+                "error": terminal.get("error", "Error generating response."),
+                "code": code,
+                "recoverable": bool(terminal.get("recoverable")),
+                "partial": bool(terminal.get("partial")),
+                "content": final_content,
+                "model": actual_model,
+                "requested_model": chosen_model,
+                "duration_ms": duration_ms,
+            }
+        yield f"data: {json.dumps(payload)}\n\n"
 
     return StreamingResponse(
         event_generator(),

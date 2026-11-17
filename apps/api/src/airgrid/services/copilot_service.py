@@ -353,7 +353,7 @@ async def build_messages_history(
     recent = list(reversed(res.scalars().all()))
 
     for msg in recent:
-        if msg.role in ("user", "assistant"):
+        if msg.role in ("user", "assistant") and msg.status != "error":  # failed turns are not model context
             messages.append({"role": msg.role, "content": msg.content})
 
     return messages
