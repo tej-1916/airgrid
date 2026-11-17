@@ -14,6 +14,7 @@ from airgrid.api.v1.endpoints import (
     collectors,
     retention,
     copilot,
+    campus_model,
 )
 
 api_router = APIRouter()
@@ -21,6 +22,7 @@ api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(auth.router, prefix="/auth")
 api_router.include_router(campuses.router)
+api_router.include_router(campus_model.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(speed_tests.router)
 api_router.include_router(surveys.router)
