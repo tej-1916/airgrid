@@ -2,7 +2,7 @@
 
 **Date:** November 17, 2026  
 **Branch:** `feat/airgrid-real-network-intelligence`  
-**Checkpoint Commit:** Pending Next Commit  
+**Checkpoint Commit:** `6740003`  
 **Milestone:** Milestone 3B: Real Wi-Fi Heatmaps (Full-Stack Spatial Architecture, Genuine Read-Only Telemetry Integration, Inverse-Distance Weighting, Radial & Convex-Hull Masking, Leave-One-Out Cross-Validation, In-Studio Plan Setup & Outline Generation, Scale Calibration, and Operator Survey Workflow)  
 
 ### Status Breakdown:
