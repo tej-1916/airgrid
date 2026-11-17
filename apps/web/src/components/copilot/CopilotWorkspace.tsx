@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Sparkles,
   Send,
@@ -13,6 +13,9 @@ import { Conversation, GatewayStatus } from '../../types/copilot';
 import { ChatConversation } from './ChatConversation';
 
 interface CopilotWorkspaceProps {
+  initialPrompt?: string;
+  focusFloor?: boolean;
+  onClearFocus?: () => void;
   activeConversation: Conversation | null;
   onSendMessage: (content: string, options?: { model?: string; includeNetworkContext?: boolean }) => Promise<void>;
   onStopStreaming: () => void;
@@ -61,6 +64,9 @@ const SUGGESTIONS = [
 ];
 
 export const CopilotWorkspace: React.FC<CopilotWorkspaceProps> = ({
+  initialPrompt,
+  focusFloor,
+  onClearFocus,
   activeConversation,
   onSendMessage,
   onStopStreaming,
@@ -78,6 +84,7 @@ export const CopilotWorkspace: React.FC<CopilotWorkspaceProps> = ({
   const [includeContext, setIncludeContext] = useState(true);
   const [probing, setProbing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => { if (initialPrompt) setInput(initialPrompt); }, [initialPrompt]);
 
   const messages = activeConversation?.messages || [];
 
@@ -287,6 +294,12 @@ export const CopilotWorkspace: React.FC<CopilotWorkspaceProps> = ({
             </span>
           </div>
 
+          {focusFloor && (
+            <div className="mb-2 flex items-center gap-2 text-xs rounded-lg border border-[#BE6B37]/40 bg-[#BE6B37]/5 text-[#9A5226] px-2.5 py-1.5" role="status">
+              Answers are grounded in the floor you selected in 3D Campus (authorized records, with citations). Synthetic demo data is labelled as such.
+              <button type="button" onClick={onClearFocus} className="ml-auto underline">Clear</button>
+            </div>
+          )}
           {/* Input Box */}
           <div className="relative flex items-end gap-2 bg-[#F5F5F3] border border-[#D9DBDE] rounded-2xl p-2 focus-within:border-[#BE6B37] focus-within:ring-1 focus-within:ring-[#BE6B37] transition-all">
             <textarea

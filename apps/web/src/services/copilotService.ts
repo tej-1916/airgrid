@@ -161,7 +161,7 @@ export const copilotService = {
   async sendMessage(
     conversationId: string,
     content: string,
-    options?: { model?: string; includeNetworkContext?: boolean }
+    options?: { model?: string; includeNetworkContext?: boolean; floorId?: string }
   ): Promise<ChatMessage> {
     try {
       return await apiRequest<ChatMessage>(`/api/v1/ai/copilot/conversations/${conversationId}/messages`, {
@@ -170,6 +170,7 @@ export const copilotService = {
           content,
           model: options?.model,
           include_network_context: options?.includeNetworkContext ?? true,
+          floor_id: options?.floorId,
         }),
       });
     } catch {
@@ -290,7 +291,7 @@ Respond in well-structured markdown with bullet points and clear technical reaso
       onError: (error: StreamError) => void;
     },
     signal?: AbortSignal,
-    options?: { model?: string; includeNetworkContext?: boolean; retry?: boolean }
+    options?: { model?: string; includeNetworkContext?: boolean; retry?: boolean; floorId?: string }
   ): () => void {
     // Aborting the fetch closes the SSE connection; the server then closes the upstream provider request.
     const controller = new AbortController();
@@ -320,6 +321,7 @@ Respond in well-structured markdown with bullet points and clear technical reaso
             content,
             model: options?.model,
             include_network_context: options?.includeNetworkContext ?? true,
+          floor_id: options?.floorId,
             retry: options?.retry ?? false,
           }),
         });

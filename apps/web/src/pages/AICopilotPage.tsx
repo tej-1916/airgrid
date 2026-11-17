@@ -1,10 +1,13 @@
 import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Conversation, ConversationSummary, GatewayStatus } from '../types/copilot';
 import { copilotService } from '../services/copilotService';
 import { ConversationList } from '../components/copilot/ConversationList';
 import { CopilotWorkspace } from '../components/copilot/CopilotWorkspace';
 
 export const AICopilotPage: React.FC = () => {
+  const navState = useLocation().state as { floorId?: string; prompt?: string } | null;
+  const [focusFloorId, setFocusFloorId] = useState<string | null>(navState?.floorId ?? null);
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [activeConversation, setActiveConversation] = useState<Conversation | null>(null);
@@ -17,7 +20,7 @@ export const AICopilotPage: React.FC = () => {
   const [streamingModel, setStreamingModel] = useState('');
   const [abortFn, setAbortFn] = useState<(() => void) | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [retryable, setRetryable] = useState<{ content: string; options?: { model?: string; includeNetworkContext?: boolean } } | null>(null);
+  const [retryable, setRetryable] = useState<{ content: string; options?: { model?: string; includeNetworkContext?: boolean; floorId?: string } } | null>(null);
 
   const loadInitialData = async () => {
     setLoading(true);
@@ -178,7 +181,7 @@ export const AICopilotPage: React.FC = () => {
 
   const handleSendMessage = async (
     content: string,
-    options?: { model?: string; includeNetworkContext?: boolean },
+    options?: { model?: string; includeNetworkContext?: boolean; floorId?: string },
     retry = false
   ) => {
     if (!activeId) return;
@@ -302,7 +305,7 @@ export const AICopilotPage: React.FC = () => {
         },
       },
       undefined,
-      { ...options, retry }
+      { ...options, retry, floorId: options?.floorId ?? focusFloorId ?? undefined }
     );
 
     setAbortFn(() => stop);
@@ -378,6 +381,9 @@ export const AICopilotPage: React.FC = () => {
           selectedModel={selectedModel}
           onSelectModel={handleSelectModel}
           availableModels={availableModels}
+          initialPrompt={navState?.prompt}
+          focusFloor={focusFloorId !== null}
+          onClearFocus={() => setFocusFloorId(null)}
         />
       </div>
     </div>

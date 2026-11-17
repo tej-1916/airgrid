@@ -29,7 +29,7 @@ function inPoly(x: number, y: number, poly: number[][]) {
 
 export default function CampusModelPage() {
   const mount = useRef<HTMLDivElement>(null);
-  const three = useRef<{ camera: THREE.PerspectiveCamera; root: THREE.Object3D | null; render: () => void; home: () => void } | null>(null);
+  const three = useRef<{ camera: THREE.PerspectiveCamera; scene: THREE.Scene; root: THREE.Object3D | null; render: () => void; home: () => void } | null>(null);
   const [info, setInfo] = useState<ModelInfo | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error' | 'unavailable'>('loading');
   const [error, setError] = useState('');
@@ -84,7 +84,7 @@ export default function CampusModelPage() {
     const home = () => { camera.position.set(95, 80, 110); controls.target.set(0, 4, 0); controls.update(); render(); };
     const resize = () => { const w = el.clientWidth, h = el.clientHeight; if (!w || !h) return; renderer.setSize(w, h); camera.aspect = w / h; camera.updateProjectionMatrix(); render(); };
     const ro = new ResizeObserver(resize); ro.observe(el);
-    three.current = { camera, root: null, render, home };
+    three.current = { camera, scene, root: null, render, home };
 
     let dead = false;
     (async () => {
@@ -131,6 +131,20 @@ export default function CampusModelPage() {
       .catch((e) => !dead && setError(e instanceof Error ? e.message : 'Coverage request failed.'));
     return () => { dead = true; };
   }, [level]);
+
+  // 5) coverage overlay: one flat coloured polygon per room on the selected floor (blender (x, y) -> glTF (x, z = -y))
+  useEffect(() => {
+    const t = three.current; if (!t || !level || !coverage?.session) return;
+    const group = new THREE.Group();
+    coverage.rooms.forEach((r) => {
+      const shape = new THREE.Shape(r.polygon_world.map(([x, y]) => new THREE.Vector2(x, y)));
+      const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: BAND_COLOUR[r.band], transparent: true, opacity: room?.id === r.id ? 0.85 : 0.5, side: THREE.DoubleSide, depthWrite: false }));
+      mesh.rotation.x = -Math.PI / 2; mesh.position.y = level.finished_floor_z_m + 0.08; // shape (x, y) -> world (x, 0, -y)
+      group.add(mesh);
+    });
+    t.scene.add(group); t.render();
+    return () => { t.scene.remove(group); group.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); (m.material as THREE.Material | undefined)?.dispose(); }); t.render(); };
+  }, [level, coverage, room, sceneReady]);
 
   const pick = useCallback((ev: React.MouseEvent) => {
     const t = three.current; if (!t || !level || !coverage) return;

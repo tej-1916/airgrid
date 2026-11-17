@@ -114,6 +114,8 @@ class Settings(BaseSettings):
             return [t.strip() for t in v.split(",") if t.strip()]
         return v
     # Floor Plan Storage & Uploads
+    # Local directory holding the Blender export (airgrid_mega_campus.glb + campus_geometry.json); not shipped with the repository.
+    AIRGRID_CAMPUS_MODEL_DIR: str = ""
     AIRGRID_UPLOAD_DIR: str = "data/uploads/floor_plans"
     AIRGRID_MAX_UPLOAD_SIZE_BYTES: int = 15 * 1024 * 1024  # 15 MB
     AIRGRID_ALLOWED_IMAGE_FORMATS: List[str] = ["png", "jpeg", "webp"]
