@@ -84,6 +84,8 @@ The default is disabled with no endpoint, approved model or key. Configure `AIRG
 
 Every generation requires explicit per-request approval. Report prioritization sends only minimized metric values, severities and source IDs; provider output may only select existing finding IDs. For questions, `POST /api/v1/analyst/ask/preview` shows the exact outbound text (question, local answer, cited metric values/IDs/times; never network names, addresses, device names, plans or notes) and sends nothing. The provider may only rephrase. Answers citing unknown records, or stating any number absent from the evidence, local answer or question, are rejected and the local answer is shown. Model identity is provider-reported, not independently verified, and is stored in analysis history. Requests have a timeout, zero retries, a 1024-token completion cap and ten generations per minute per process.
 
+The AI Copilot chat stream is separate from analyst generations: it makes at most `AIRGRID_AI_MAX_RETRIES` (default 1) retry for transient failures (timeout, connection error, HTTP 408/429/5xx) and only before any output was produced, optionally on a gateway-listed `AIRGRID_AI_FALLBACK_MODEL`. Failures are returned as recoverable errors with a code, stored as error messages (excluded from later model context), and `retry: true` re-runs the last user message without saving it twice. The displayed model is the provider-reported executing model, not the `auto` alias.
+
 ## Verification
 
 ```bash
@@ -97,3 +99,18 @@ AIRGRID_PLAYWRIGHT_MODULE=/path/to/playwright node docs/verification/verify_phas
 The browser script expects a frontend at `http://127.0.0.1:5187` (override `AIRGRID_BROWSER_URL`), intercepts API calls with labeled fixtures, and blocks external requests. Start it with `npm --prefix apps/web run dev -- --host 127.0.0.1 --port 5187`. It never logs in with production credentials, runs live probes, trains campus models or invokes external AI.
 
 See [completion progress](docs/development/CLAUDE_COMPLETION_PROGRESS.md), [recovery instructions](docs/development/RESUME_FROM_HERE.md), [baseline evidence](docs/verification/AUTONOMOUS_BUILD_BASELINE.md) and [system architecture](docs/architecture/SYSTEM_ARCHITECTURE.md). Phase acceptance limits are in the Phase 05–08 handoffs; historical completion claims are not a substitute for these results.
+
+## AI Development Credits
+
+AirGrid is owned, directed and maintained by its repository owner (**tej-1916**), who sets the requirements, reviews the work and decides what ships. All commits remain authored under the owner's account.
+
+[Claude Code](https://claude.com/claude-code) (Anthropic's AI coding agent) assisted development under that direction. Its contributions include:
+
+- Registered collectors, signed ingestion, trends and retention (`42f824b`), and collector fail-closed signing-key handling (`bf05dcf`).
+- Instrument observations placed on calibrated survey points and ML model binding (`a5fe4d9`).
+- Grounded analyst questions, cross-session comparison and analysis history (`36603ed`).
+- Persisted optimization plans with measured before/after comparison (`bd3f537`).
+- ORM/migration index reconciliation (`bc7e7e8`), browser fixture verification (`445a922`) and completion documentation (`946f5bf`).
+- The AI Copilot provider-failure fix: bounded retry, structured recoverable errors, duplicate-free retry, real stream cancellation, and the accompanying resilience tests.
+
+Commits with material Claude Code contribution carry a standard `Co-Authored-By: Claude … <noreply@anthropic.com>` trailer (`git log --grep="Co-Authored-By: Claude"`). AI-assisted code is held to the same verification standard as any other change: see the limits and results in the documents above, which do not treat AI-written claims as evidence.
