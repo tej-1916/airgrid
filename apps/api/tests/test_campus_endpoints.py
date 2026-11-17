@@ -505,3 +505,101 @@ async def test_unauthenticated_requests_rejected(client: AsyncClient):
 
     resp2 = await client.get(f"/api/v1/floor-plans/{uuid.uuid4()}/image")
     assert resp2.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_create_floor_outline_plan(client: AsyncClient, admin_auth, engineer_auth, viewer_auth):
+    """Verifies generating an architectural dimensioned floor outline plan."""
+    client.cookies = admin_auth["cookies"]
+    headers = admin_auth["headers"]
+
+    # 1. Create campus, building, floor
+    c_resp = await client.post(
+        "/api/v1/campuses",
+        json={"name": "Outline Test Campus", "code": f"OUT-{uuid.uuid4().hex[:6].upper()}"},
+        headers=headers,
+    )
+    assert c_resp.status_code == 201
+    campus_id = c_resp.json()["id"]
+
+    # Assign engineer to campus
+    await client.post(
+        f"/api/v1/campuses/{campus_id}/members",
+        json={"user_id": str(engineer_auth["user"].id)},
+        headers=headers,
+    )
+
+    b_resp = await client.post(
+        f"/api/v1/campuses/{campus_id}/buildings",
+        json={"name": "Test Facility", "building_code": "FAC-01"},
+        headers=headers,
+    )
+    assert b_resp.status_code == 201
+    building_id = b_resp.json()["id"]
+
+    f_resp = await client.post(
+        f"/api/v1/buildings/{building_id}/floors",
+        json={"floor_number": 2, "name": "Lab Floor", "dimensions_width_m": 40.0, "dimensions_height_m": 25.0},
+        headers=headers,
+    )
+    assert f_resp.status_code == 201
+    floor_id = f_resp.json()["id"]
+
+    # 2. Network Engineer generates dimensioned outline plan
+    client.cookies = engineer_auth["cookies"]
+    eng_headers = engineer_auth["headers"]
+
+    outline_payload = {
+        "width_m": 40.0,
+        "height_m": 25.0,
+        "grid_interval_m": 5.0,
+        "label": "Lab Floor Level 2",
+    }
+    resp = await client.post(
+        f"/api/v1/floors/{floor_id}/outline-plan",
+        json=outline_payload,
+        headers=eng_headers,
+    )
+    assert resp.status_code == 201
+    data = resp.json()
+
+    assert data["is_calibrated"] is True
+    assert data["scale_pixels_per_meter"] > 0
+    assert data["file_format"] == "png"
+    assert "outline" in (data["original_filename"] or "")
+    assert data["pixel_width"] > 0
+    assert data["pixel_height"] > 0
+    assert data["calibration_metadata"]["width_m"] == 40.0
+    assert data["calibration_metadata"]["height_m"] == 25.0
+
+    plan_id = data["id"]
+
+    # 3. Stream generated image and verify valid PNG bytes
+    img_resp = await client.get(f"/api/v1/floor-plans/{plan_id}/image")
+    assert img_resp.status_code == 200
+    assert img_resp.headers["content-type"] == "image/png"
+    assert len(img_resp.content) > 1000
+
+    # Verify Pillow can open the generated image
+    img = Image.open(io.BytesIO(img_resp.content))
+    assert img.size == (data["pixel_width"], data["pixel_height"])
+
+    # 4. Verify Floor record physical dimensions were updated
+    floor_resp = await client.get(f"/api/v1/floors/{floor_id}")
+    assert floor_resp.status_code == 200
+    assert floor_resp.json()["dimensions_width_m"] == 40.0
+    assert floor_resp.json()["dimensions_height_m"] == 25.0
+
+    # 5. Viewer cannot generate outline (RBAC)
+    client.cookies = viewer_auth["cookies"]
+    v_resp = await client.post(
+        f"/api/v1/floors/{floor_id}/outline-plan",
+        json=outline_payload,
+        headers=viewer_auth["headers"],
+    )
+    assert v_resp.status_code == 403
+
+    # Cleanup
+    client.cookies = admin_auth["cookies"]
+    await client.delete(f"/api/v1/campuses/{campus_id}", headers=headers)
+

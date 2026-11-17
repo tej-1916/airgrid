@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import {
   ZoomIn,
   ZoomOut,
@@ -10,6 +10,9 @@ import {
   Ruler,
   Trash2,
   FileImage,
+  Download,
+  Upload,
+  LayoutGrid,
 } from 'lucide-react';
 import { FloorPlanAsset, Floor } from '../../types/campus';
 import { SurveyMeasurement, HeatmapGridResponse } from '../../types/survey';
@@ -27,6 +30,8 @@ interface FloorPlanSurveyCanvasProps {
   onSelectMeasurement: (m: SurveyMeasurement | null) => void;
   onDeleteMeasurement?: (m: SurveyMeasurement) => void;
   onRepositionMeasurement?: (m: SurveyMeasurement, newX: number, newY: number, reason?: string) => Promise<void>;
+  onOpenSetupModal?: () => void;
+  onOpenCalibrateModal?: () => void;
   canMutate?: boolean;
   availableNetworks?: string[];
   selectedNetwork?: string;
@@ -43,6 +48,8 @@ export const FloorPlanSurveyCanvas: React.FC<FloorPlanSurveyCanvasProps> = ({
   onSelectMeasurement,
   onDeleteMeasurement,
   onRepositionMeasurement,
+  onOpenSetupModal,
+  onOpenCalibrateModal,
   canMutate = false,
   availableNetworks = [],
   selectedNetwork = '',
@@ -75,9 +82,28 @@ export const FloorPlanSurveyCanvas: React.FC<FloorPlanSurveyCanvasProps> = ({
   const [showMarkers, setShowMarkers] = useState<boolean>(true);
   const [showHeatmap, setShowHeatmap] = useState<boolean>(true);
   const [heatmapOpacity, setHeatmapOpacity] = useState<number>(0.65);
+  const [exportingPng, setExportingPng] = useState<boolean>(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
+
+  // Natural dimensions
+  const naturalWidth = floorPlan?.pixel_width || imageRef.current?.naturalWidth || 1000;
+  const naturalHeight = floorPlan?.pixel_height || imageRef.current?.naturalHeight || 600;
+
+  // Model prediction calculation at selected measurement position
+  const selectedPrediction = useMemo(() => {
+    if (!selectedMeasurement || !heatmap || !heatmap.grid_data || !heatmap.grid_data.length) return null;
+    const nw = naturalWidth || 1;
+    const nh = naturalHeight || 1;
+    const c = Math.floor((selectedMeasurement.position_x / nw) * heatmap.grid_width);
+    const r = Math.floor((selectedMeasurement.position_y / nh) * heatmap.grid_height);
+    if (r >= 0 && r < heatmap.grid_height && c >= 0 && c < heatmap.grid_width) {
+      const val = heatmap.grid_data[r]?.[c];
+      return val !== undefined ? val : null;
+    }
+    return null;
+  }, [selectedMeasurement, heatmap, naturalWidth, naturalHeight]);
 
   // Zoom handlers
   const handleZoomIn = () => setZoomLevel((z) => Math.min(z + 0.25, 4));
@@ -108,8 +134,8 @@ export const FloorPlanSurveyCanvas: React.FC<FloorPlanSurveyCanvasProps> = ({
   const handleImageClick = (e: React.MouseEvent<HTMLImageElement>) => {
     if (!imageRef.current || isPanning) return;
     const rect = imageRef.current.getBoundingClientRect();
-    const naturalWidth = imageRef.current.naturalWidth || floorPlan?.pixel_width || 1000;
-    const naturalHeight = imageRef.current.naturalHeight || floorPlan?.pixel_height || 600;
+    const nw = imageRef.current.naturalWidth || floorPlan?.pixel_width || 1000;
+    const nh = imageRef.current.naturalHeight || floorPlan?.pixel_height || 600;
 
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
@@ -118,14 +144,105 @@ export const FloorPlanSurveyCanvas: React.FC<FloorPlanSurveyCanvasProps> = ({
     if (clickX < 0 || clickY < 0 || clickX > rect.width || clickY > rect.height) return;
 
     // Convert to unscaled natural image pixel coordinates
-    const originalX = Math.round((clickX / rect.width) * naturalWidth);
-    const originalY = Math.round((clickY / rect.height) * naturalHeight);
+    const originalX = Math.round((clickX / rect.width) * nw);
+    const originalY = Math.round((clickY / rect.height) * nh);
 
     onCanvasClick({ x: originalX, y: originalY });
   };
 
-  const naturalWidth = floorPlan?.pixel_width || imageRef.current?.naturalWidth || 1000;
-  const naturalHeight = floorPlan?.pixel_height || imageRef.current?.naturalHeight || 600;
+  // Export full composite canvas (floor plan + heatmap + markers + scale) to PNG
+  const handleExportPng = () => {
+    if (!floorPlan || !imageRef.current) return;
+    try {
+      setExportingPng(true);
+      const canvas = document.createElement('canvas');
+      canvas.width = naturalWidth;
+      canvas.height = naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // 1. Draw base floor plan image
+      ctx.drawImage(imageRef.current, 0, 0, naturalWidth, naturalHeight);
+
+      // 2. Draw heatmap overlay if visible
+      if (showHeatmap && heatmap && heatmap.grid_data) {
+        const off = document.createElement('canvas');
+        off.width = heatmap.grid_width;
+        off.height = heatmap.grid_height;
+        const offCtx = off.getContext('2d');
+        if (offCtx) {
+          const imgData = offCtx.createImageData(heatmap.grid_width, heatmap.grid_height);
+          for (let r = 0; r < heatmap.grid_height; r++) {
+            for (let c = 0; c < heatmap.grid_width; c++) {
+              const val = heatmap.grid_data[r]?.[c];
+              const idx = (r * heatmap.grid_width + c) * 4;
+              if (val !== null && val !== undefined) {
+                const cl = Math.max(-90, Math.min(-30, val));
+                let rVal = 16, gVal = 185, bVal = 129;
+                if (cl < -75) { rVal = 225; gVal = 29; bVal = 72; }
+                else if (cl < -67) { rVal = 245; gVal = 158; bVal = 11; }
+                else if (cl < -50) { rVal = 13; gVal = 148; bVal = 136; }
+                imgData.data[idx] = rVal;
+                imgData.data[idx + 1] = gVal;
+                imgData.data[idx + 2] = bVal;
+                imgData.data[idx + 3] = Math.round(heatmapOpacity * 255);
+              }
+            }
+          }
+          offCtx.putImageData(imgData, 0, 0);
+          ctx.drawImage(off, 0, 0, naturalWidth, naturalHeight);
+        }
+      }
+
+      // 3. Draw survey points if visible
+      if (showMarkers) {
+        measurements.forEach((m) => {
+          ctx.beginPath();
+          ctx.arc(m.position_x, m.position_y, 7, 0, 2 * Math.PI);
+          ctx.fillStyle = m.rssi_dbm >= -50 ? '#10B981' : m.rssi_dbm >= -67 ? '#0D9488' : m.rssi_dbm >= -75 ? '#D97706' : '#E11D48';
+          ctx.fill();
+          ctx.lineWidth = 2;
+          ctx.strokeStyle = '#FFFFFF';
+          ctx.stroke();
+
+          ctx.fillStyle = '#0B0B0D';
+          ctx.font = 'bold 10px monospace';
+          ctx.fillText(`${m.rssi_dbm}dBm`, m.position_x + 10, m.position_y + 4);
+        });
+      }
+
+      // 4. Stamp title block
+      ctx.fillStyle = 'rgba(11, 11, 13, 0.85)';
+      ctx.fillRect(10, 10, 320, 50);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 13px sans-serif';
+      ctx.fillText(`AirGrid RF Survey — ${floor?.name || 'Floor'}`, 20, 30);
+      ctx.fillStyle = '#D9DBDE';
+      ctx.font = '10px monospace';
+      ctx.fillText(
+        `Scale: ${floorPlan.scale_pixels_per_meter.toFixed(1)} px/m | ${measurements.length} Points`,
+        20,
+        48
+      );
+
+      // Trigger download
+      canvas.toBlob((blob) => {
+        if (!blob) return;
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const floorClean = (floor?.name || 'floor').toLowerCase().replace(/\s+/g, '_');
+        a.download = `airgrid_heatmap_${floorClean}.png`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setExportingPng(false);
+      }, 'image/png');
+    } catch {
+      setExportingPng(false);
+    }
+  };
 
   return (
     <div className="rounded-xl border border-[#D9DBDE] bg-white overflow-hidden shadow-xs flex flex-col h-[600px] relative">
@@ -186,9 +303,31 @@ export const FloorPlanSurveyCanvas: React.FC<FloorPlanSurveyCanvasProps> = ({
           )}
         </div>
 
-        {/* Visibility Toggles */}
-        {floorPlan && (
-          <div className="flex items-center gap-3">
+        {/* Visibility Toggles & Actions */}
+        {floorPlan ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            {canMutate && onOpenCalibrateModal && (
+              <button
+                onClick={onOpenCalibrateModal}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-[#D9DBDE] bg-white text-xs font-semibold text-[#0B0B0D] hover:bg-[#F5F5F3] transition-colors"
+                title="Calibrate scale in pixels per meter"
+              >
+                <Ruler className="w-3.5 h-3.5 text-[#BE6B37]" />
+                <span className="hidden sm:inline">Calibrate</span>
+              </button>
+            )}
+
+            {canMutate && onOpenSetupModal && (
+              <button
+                onClick={onOpenSetupModal}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-[#D9DBDE] bg-white text-xs font-semibold text-[#0B0B0D] hover:bg-[#F5F5F3] transition-colors"
+                title="Change or upload a new floor plan"
+              >
+                <Layers className="w-3.5 h-3.5 text-[#BE6B37]" />
+                <span className="hidden sm:inline">Setup Plan</span>
+              </button>
+            )}
+
             <button
               onClick={() => setShowMarkers(!showMarkers)}
               className={`flex items-center gap-1 px-2 py-1 rounded-lg border text-xs font-semibold transition-colors ${
@@ -235,8 +374,27 @@ export const FloorPlanSurveyCanvas: React.FC<FloorPlanSurveyCanvasProps> = ({
                 </span>
               </div>
             )}
+
+            {/* Export PNG button */}
+            <button
+              onClick={handleExportPng}
+              disabled={exportingPng}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg border border-[#D9DBDE] bg-white text-xs font-semibold text-[#0B0B0D] hover:bg-[#F5F5F3] transition-colors"
+              title="Download calibrated floor plan and heatmap as PNG image"
+            >
+              <Download className="w-3.5 h-3.5 text-[#BE6B37]" />
+              <span className="hidden sm:inline">{exportingPng ? 'Exporting...' : 'Export PNG'}</span>
+            </button>
           </div>
-        )}
+        ) : canMutate && onOpenSetupModal ? (
+          <button
+            onClick={onOpenSetupModal}
+            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-[#BE6B37] text-white text-xs font-semibold hover:bg-[#9A5226] transition-colors shadow-xs"
+          >
+            <Upload className="w-3.5 h-3.5" />
+            <span>Add Floor Plan</span>
+          </button>
+        ) : null}
       </div>
 
       {/* Main Technical Floor Plan Viewing Area (#0D0F12) */}
@@ -298,9 +456,27 @@ export const FloorPlanSurveyCanvas: React.FC<FloorPlanSurveyCanvasProps> = ({
             <div>
               <h4 className="text-sm font-bold text-white">No Floor Plan Found</h4>
               <p className="text-xs text-slate-400 mt-1">
-                Upload a calibrated floor plan image in Campus Manager to survey radio signal coverage.
+                Upload an authorized blueprint image or generate a dimensioned floor outline to survey radio coverage.
               </p>
             </div>
+            {canMutate && onOpenSetupModal && (
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
+                <button
+                  onClick={onOpenSetupModal}
+                  className="w-full sm:w-auto py-1.5 px-3 rounded-lg bg-[#BE6B37] text-white text-xs font-semibold hover:bg-[#9A5226] active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+                >
+                  <Upload className="w-3.5 h-3.5" />
+                  <span>Upload Blueprint</span>
+                </button>
+                <button
+                  onClick={onOpenSetupModal}
+                  className="w-full sm:w-auto py-1.5 px-3 rounded-lg border border-white/20 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold active:scale-[0.98] flex items-center justify-center gap-1.5 transition-colors"
+                >
+                  <LayoutGrid className="w-3.5 h-3.5 text-[#BE6B37]" />
+                  <span>Generate Outline</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -379,6 +555,31 @@ export const FloorPlanSurveyCanvas: React.FC<FloorPlanSurveyCanvasProps> = ({
                       <span className="text-slate-200">
                         RX {selectedMeasurement.rx_bitrate_mbps} / TX {selectedMeasurement.tx_bitrate_mbps ?? '—'} Mbps
                       </span>
+                    </div>
+                  )}
+                  {heatmap && (
+                    <div className="pt-1.5 border-t border-white/10 space-y-1">
+                      <div className="flex justify-between">
+                        <span className="text-slate-400">IDW Prediction:</span>
+                        <span className="font-semibold text-white">
+                          {selectedPrediction !== null ? `${selectedPrediction.toFixed(1)} dBm` : 'Masked / Unmeasured'}
+                        </span>
+                      </div>
+                      {selectedPrediction !== null && (
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Model Residual (Δ):</span>
+                          <span className={`font-bold ${
+                            Math.abs(selectedMeasurement.rssi_dbm - selectedPrediction) <= 3
+                              ? 'text-emerald-400'
+                              : Math.abs(selectedMeasurement.rssi_dbm - selectedPrediction) <= 6
+                              ? 'text-amber-400'
+                              : 'text-rose-400'
+                          }`}>
+                            {(selectedMeasurement.rssi_dbm - selectedPrediction >= 0 ? '+' : '')}
+                            {(selectedMeasurement.rssi_dbm - selectedPrediction).toFixed(1)} dBm
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                   <div className="flex justify-between pt-1 border-t border-white/10 text-[10px]">

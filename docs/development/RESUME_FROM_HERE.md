@@ -1,9 +1,9 @@
 # Resume AirGrid — Operational State & Handoff Guide
 
-**Last Updated:** 2026-11-05  
+**Last Updated:** 2026-11-17  
 **Current Branch:** `feat/airgrid-real-network-intelligence`  
-**Checkpoint Commit:** `2e9b62f`  
-**Test Suite State:** **212 passed, 0 failures, 0 warnings** (100% clean)  
+**Checkpoint Commit:** Pending Next Commit  
+**Test Suite State:** **213 passed, 0 failures, 0 warnings** (100% clean)  
 **Database Migration Head:** `0012_campus_access_control` (clean on both `airgrid_test_db` and `airgrid_db`)  
 **Milestone Status:**
 - Milestone 1: Real Network Intelligence (Verified & Completed)
@@ -18,7 +18,7 @@
 From the repository root (`~/Projects/airgrid`):
 
 ```bash
-# 1. Run all backend tests (must report 212 passed, 0 failures)
+# 1. Run all backend tests (must report 213 passed, 0 failures)
 apps/api/.venv/bin/python -m pytest
 
 # 2. Check schema synchronization with PostgreSQL test DB
@@ -27,9 +27,10 @@ cd apps/api && .venv/bin/alembic check && cd ../..
 # 3. Build frontend bundle (TypeScript + Vite)
 npm --prefix apps/web run build
 
-# 4. Run full 16-route isolated browser test suite (desktop + mobile viewports)
+# 4. Run full isolated Playwright browser test suite (desktop 1440x900 + mobile 390x844)
 npm --prefix apps/web run preview -- --port 5199 --host 127.0.0.1 &
 VITE_PID=$!
+while ! curl -s http://127.0.0.1:5199 > /dev/null; do sleep 0.2; done
 NODE_PATH=/home/teju/.local/lib/node_modules/@playwright/cli/node_modules AIRGRID_BROWSER_URL=http://127.0.0.1:5199 node docs/verification/verify_heatmaps_e2e.cjs
 kill $VITE_PID
 ```
@@ -58,10 +59,14 @@ npm run dev -- --host 127.0.0.1 --port 5173
 ## 3. Completed Scope Overview
 
 1. **Milestone 3B: Real Wi-Fi Heatmaps (Completed):**
-   - **Calibrated Coordinate System:** Physical floor plan dimensions mapped to meters, preventing scaling distortions.
+   - **Calibrated Coordinate System & Outline Generation:** Physical floor plan dimensions mapped to meters, preventing scaling distortions. In-studio setup modal supports either direct blueprint image upload or generation of dimensioned calibrated floor outlines (`POST /api/v1/floors/{floor_id}/outline-plan`) using exact site dimensions.
+   - **In-Studio Scale Calibration:** Direct calibration by entering known physical width (meters) or 2-point reference distance without navigating away.
    - **Read-Only Live Wireless Telemetry:** Manually triggered capture (`POST /api/v1/surveys/{id}/measurements/collect-live`) querying Linux `iw` on `wlp0s20f3`. Records RSSI, channel, frequency, band, and negotiated PHY rates (`rx_bitrate_mbps`, `tx_bitrate_mbps`) linked to `NetworkTelemetrySnapshot` (`field_instrument_verified`).
    - **IDW Spatial Interpolation with Masks:** Power $p=2.0$, smoothing $\epsilon=0.5$ m, 18.0 m radial cutoff, and Andrew's Monotone Chain 2D convex hull with 4.0 m buffer. Areas beyond measured support are rendered completely transparent ("Unknown / Unmeasured Area").
    - **Leave-One-Out Cross-Validation (LOOCV):** Built-in empirical error estimation (`GET /api/v1/surveys/{id}/validation`) reporting MAE (dBm), RMSE, error distribution, and sparsity alerts.
+   - **Point Inspector Model Comparison:** Live side-by-side inspection of measured RSSI vs IDW interpolated prediction with signed model residual (Δ in dBm) and freshness timestamp.
+   - **Export Composite Heatmap PNG:** Download complete survey maps with floor plan, heatmap overlay, markers, and title block.
+   - **4-Step Workflow Stepper:** Clear visual indicator tracking Floor Plan -> Session -> Points -> Heatmap & LOOCV.
    - **Audited Repositioning:** Interactive correction of misplaced points (`PATCH /api/v1/surveys/{id}/measurements/{id}/reposition`) with boundary validation and audit logging (`action="survey.measurement_repositioned"`).
 
 2. **Milestone 3A: Real Speed Testing (Completed):**

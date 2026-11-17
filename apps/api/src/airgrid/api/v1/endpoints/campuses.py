@@ -35,6 +35,7 @@ from airgrid.schemas.campus import (
     FloorResponse,
     FloorPlanResponse,
     CalibrationRequest,
+    FloorOutlineCreateRequest,
     CampusMemberCreate,
     CampusMemberResponse,
 )
@@ -439,6 +440,31 @@ async def upload_floor_plan(
         floor_id=floor_id,
         file_bytes=file_bytes,
         original_filename=file.filename or "floor_plan.png",
+        current_user=current_user,
+        ip_address=ip_addr,
+    )
+    return _format_floor_plan_response(plan)
+
+
+@router.post(
+    "/floors/{floor_id}/outline-plan",
+    response_model=FloorPlanResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_floor_outline_plan(
+    floor_id: uuid.UUID,
+    data: FloorOutlineCreateRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_engineer_or_admin),
+    _: None = Depends(verify_csrf),
+):
+    """Generate a calibrated architectural dimensioned floor outline plan (Admin or Network Engineer)."""
+    ip_addr = request.client.host if request.client else None
+    plan = await campus_service.create_floor_outline_plan(
+        db=db,
+        floor_id=floor_id,
+        data=data,
         current_user=current_user,
         ip_address=ip_addr,
     )

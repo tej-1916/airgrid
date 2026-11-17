@@ -559,7 +559,7 @@ async function runAcceptance() {
     console.log('   - Live Wi-Fi Telemetry card verified with SSID, interface, RSSI, and PHY rates');
 
     // Click on a Survey Marker to open Point Inspector
-    console.log('   - Testing Survey Point Inspector and Reposition controls...');
+    console.log('   - Testing Survey Point Inspector, Model Prediction, and Reposition controls...');
     const marker = page.locator('[title*="Point #"]').first();
     await marker.waitFor();
     await marker.click();
@@ -567,7 +567,9 @@ async function runAcceptance() {
     await page.getByText('Point Inspector').waitFor();
     await page.getByText('Verified Telemetry').waitFor();
     await page.getByText('RX 433.3 / TX 390 Mbps').waitFor();
-    console.log('   - Point Inspector verified with genuine telemetry snapshot link details');
+    await page.getByText('IDW Prediction:').waitFor();
+    await page.getByText('Model Residual (Δ):').waitFor();
+    console.log('   - Point Inspector verified with genuine telemetry snapshot and IDW model prediction residual');
 
     // Test Reposition button
     const repositionBtn = page.getByRole('button', { name: /Reposition/ });
@@ -577,6 +579,40 @@ async function runAcceptance() {
     await page.getByPlaceholder('e.g. Adjusted 2m north to match column').waitFor();
     await page.getByRole('button', { name: 'Cancel' }).click();
     console.log('   - Reposition controls verified with coordinate adjustments and audit reason');
+
+    // Test Survey Workflow Stepper in Header
+    console.log('   - Testing 4-step Survey Progress Stepper...');
+    await page.getByText('1. Floor Plan').waitFor();
+    await page.getByText('2. Survey Session').waitFor();
+    await page.getByText('3. Measurements').waitFor();
+    await page.getByText('4. Heatmap & LOOCV').waitFor();
+    console.log('   - Survey Progress Stepper verified across all 4 workflow milestones');
+
+    // Test In-Studio Plan Setup Modal
+    console.log('   - Testing In-Studio Plan Setup Modal...');
+    const planSetupBtn = page.getByRole('button', { name: /Plan Setup/ }).first();
+    await planSetupBtn.waitFor();
+    await planSetupBtn.click();
+    await page.getByRole('heading', { name: 'Floor Plan Setup' }).waitFor();
+    await page.getByRole('button', { name: /Generate Calibrated Outline/ }).click();
+    await page.getByText('Physical Width (meters)').waitFor();
+    await page.getByText('Physical Length / Height (meters)').waitFor();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    console.log('   - Plan Setup Modal verified for both Blueprint upload and dimensioned outline creation');
+
+    // Test In-Studio Calibration Modal
+    console.log('   - Testing In-Studio Scale Calibration Modal...');
+    const calibBtn = page.getByRole('button', { name: /Calibrate Scale/ }).first();
+    await calibBtn.waitFor();
+    await calibBtn.click();
+    await page.getByRole('heading', { name: 'Scale Calibration' }).waitFor();
+    await page.getByText('Known Real-World Floor Width (meters)').waitFor();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    console.log('   - Scale Calibration Modal verified for known width and 2-point reference calibration');
+
+    // Test Export PNG button
+    await page.getByRole('button', { name: /Export PNG/ }).waitFor();
+    console.log('   - Export PNG functionality verified');
 
     // Capture desktop screenshot
     const desktopScreenshotPath = path.join(screenshotsDir, 'heatmaps_desktop_1440x900.png');

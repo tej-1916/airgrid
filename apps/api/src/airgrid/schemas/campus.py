@@ -19,6 +19,14 @@ class CalibrationRequest(BaseModel):
     distance_m: float = Field(..., gt=0.01, le=10000.0, description="Real world distance between points in meters")
 
 
+class FloorOutlineCreateRequest(BaseModel):
+    width_m: float = Field(..., gt=1.0, le=1000.0, description="Floor width in meters")
+    height_m: float = Field(..., gt=1.0, le=1000.0, description="Floor height / length in meters")
+    grid_interval_m: float = Field(5.0, gt=0.5, le=50.0, description="Grid line interval in meters")
+    label: Optional[str] = Field(None, max_length=100, description="Optional custom title for the outline")
+
+
+
 class FloorPlanResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

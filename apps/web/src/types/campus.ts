@@ -127,6 +127,13 @@ export interface CalibrationPayload {
   distance_m: number;
 }
 
+export interface FloorOutlinePayload {
+  width_m: number;
+  height_m: number;
+  grid_interval_m?: number;
+  label?: string;
+}
+
 // Dashboard Types
 export interface DashboardSummary {
   selected_campus_id?: string | null;

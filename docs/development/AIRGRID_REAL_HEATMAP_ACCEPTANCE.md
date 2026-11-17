@@ -1,13 +1,13 @@
 # AirGrid Milestone 3B: Real Wi-Fi Heatmaps Acceptance Report
 
-**Date:** November 5, 2026  
+**Date:** November 17, 2026  
 **Branch:** `feat/airgrid-real-network-intelligence`  
-**Checkpoint Commit:** `2e9b62f`  
-**Milestone:** Milestone 3B: Real Wi-Fi Heatmaps (Full-Stack Spatial Architecture, Genuine Read-Only Telemetry Integration, Inverse-Distance Weighting, Radial & Convex-Hull Masking, Leave-One-Out Cross-Validation, and Operator Survey Workflow)  
+**Checkpoint Commit:** Pending Next Commit  
+**Milestone:** Milestone 3B: Real Wi-Fi Heatmaps (Full-Stack Spatial Architecture, Genuine Read-Only Telemetry Integration, Inverse-Distance Weighting, Radial & Convex-Hull Masking, Leave-One-Out Cross-Validation, In-Studio Plan Setup & Outline Generation, Scale Calibration, and Operator Survey Workflow)  
 
 ### Status Breakdown:
-* **Software Implementation:** **COMPLETED** (Full-stack API, IDW engine, LOOCV harness, canvas viewer, live telemetry probe, repositioning with audit trail).
-* **Automated Verification:** **COMPLETED** (212 backend tests passed, TypeScript build clean, Playwright E2E passed on 1440×900 and 390×844 with 0 console errors, Alembic schema clean, operational `airgrid_db` preserved).
+* **Software Implementation:** **COMPLETED** (Full-stack API, IDW engine, LOOCV harness, canvas viewer, live telemetry probe, repositioning with audit trail, in-studio plan upload & dimensioned outline generation, in-studio scale calibration, point model prediction residual inspection, composite PNG export, 4-step workflow stepper).
+* **Automated Verification:** **COMPLETED** (213 backend tests passed, TypeScript build clean, Playwright E2E passed on 1440×900 and 390×844 with 0 console errors, Alembic schema clean, operational `airgrid_db` preserved).
 * **Physical Survey Workflow:** **PREPARED & VERIFIED READY** (Operator walk-through protocol, calibration prerequisites, live read-only telemetry capture from interface `wlp0s20f3` on `MOJO-JAN-C2-F1`, LOOCV validation harness).
 * **Genuine Spatial Validation:** **PENDING OPERATOR FIELD SURVEY** (Awaiting physical walk-through with real site floor plan and genuine physical measurements).
 * **Overall Status:** **SOFTWARE & AUTOMATION VERIFIED (PHYSICAL FIELD SURVEY PENDING)**
@@ -20,12 +20,17 @@ Milestone 3B establishes AirGrid's genuine spatial Wi-Fi heatmap and site-survey
 
 ### Completed & Automated Quality Gates:
 1. **Calibrated Coordinate & Spatial Scaling System:** Real-world dimensions (meters) mapped to floor plan pixels with strict coordinate boundary enforcement in [`FloorPlanSurveyCanvas.tsx`](file:///home/teju/Projects/airgrid/apps/web/src/components/survey/FloorPlanSurveyCanvas.tsx) and [`survey_service.py`](file:///home/teju/Projects/airgrid/apps/api/src/airgrid/services/survey_service.py).
-2. **Read-Only Live Wireless Telemetry Capture:** Manually initiated capture (`POST /api/v1/surveys/{id}/measurements/collect-live`) querying active wireless interface (`wlp0s20f3`) via Linux `iw` and `NetworkManager`. Records genuine RSSI (dBm), channel, frequency (MHz), band, BSSID, and negotiated PHY bitrates (`rx_bitrate_mbps`, `tx_bitrate_mbps`) linked to a persistent `NetworkTelemetrySnapshot` with provenance `field_instrument_verified`.
-3. **Rigorous Spatial Interpolation (IDW + Radial Cutoff + Convex Hull):** Inverse-distance weighting with power $p=2.0$, smoothing parameter $\epsilon=0.5$ m, an 18.0 m maximum influence radius, and Andrew's Monotone Chain 2D convex hull with a 4.0 m buffer. Areas beyond measured support are strictly masked (`null`) and rendered transparent on the canvas ("Unknown / Unmeasured Area") rather than colored as fake weak signal.
-4. **Interactive Repositioning with Immutable Audit Trail:** Enables operators to correct mistaken coordinate placements (`PATCH /api/v1/surveys/{id}/measurements/{id}/reposition`) with boundary validation and mandatory audit logging (`action="survey.measurement_repositioned"`).
-5. **Leave-One-Out Cross-Validation (LOOCV):** Statistical model evaluation (`GET /api/v1/surveys/{id}/validation`) that systematically holds out individual observations, calculates interpolated predictions from remaining points, and reports empirical Mean Absolute Error (MAE in dBm), RMSE, signed error bounds, error distribution histograms, and sparsity alerts.
-6. **Per-SSID Network Isolation:** Heatmaps segregate measurements by SSID to prevent mixing disparate networks.
-7. **Production Verification & Test Baseline:** Full backend test suite passing with **212 tests** (0 failures, up from baseline 207), frontend TypeScript build passing with 0 errors, full-spectrum Playwright E2E browser verification at Desktop (1440 × 900) and Mobile (390 × 844) with 0 console errors, Alembic schema cleanly in sync, and operational database `airgrid_db` completely preserved.
+2. **In-Studio Floor Plan Setup & Dimensioned Outline Generation:** Direct upload of authorized blueprints (PNG, JPEG, WebP) or instant generation of dimensioned calibrated floor outlines (`POST /api/v1/floors/{floor_id}/outline-plan`) using Pillow without requiring external graphic software.
+3. **In-Studio Scale Calibration Tool:** Direct entry of known total floor width (meters) or 2-point reference line measurement right from the Survey Studio canvas.
+4. **Read-Only Live Wireless Telemetry Capture:** Manually initiated capture (`POST /api/v1/surveys/{id}/measurements/collect-live`) querying active wireless interface (`wlp0s20f3`) via Linux `iw` and `NetworkManager`. Records genuine RSSI (dBm), channel, frequency (MHz), band, BSSID, and negotiated PHY bitrates (`rx_bitrate_mbps`, `tx_bitrate_mbps`) linked to a persistent `NetworkTelemetrySnapshot` with provenance `field_instrument_verified`.
+5. **Rigorous Spatial Interpolation (IDW + Radial Cutoff + Convex Hull):** Inverse-distance weighting with power $p=2.0$, smoothing parameter $\epsilon=0.5$ m, an 18.0 m maximum influence radius, and Andrew's Monotone Chain 2D convex hull with a 4.0 m buffer. Areas beyond measured support are strictly masked (`null`) and rendered transparent on the canvas ("Unknown / Unmeasured Area") rather than colored as fake weak signal.
+6. **Point Inspector Model Comparison:** Live side-by-side inspection of observed RSSI vs IDW interpolated prediction at selected stations with signed model residuals ($\Delta$ in dBm) and freshness timestamps.
+7. **Interactive Repositioning with Immutable Audit Trail:** Enables operators to correct mistaken coordinate placements (`PATCH /api/v1/surveys/{id}/measurements/{id}/reposition`) with boundary validation and mandatory audit logging (`action="survey.measurement_repositioned"`).
+8. **Leave-One-Out Cross-Validation (LOOCV):** Statistical model evaluation (`GET /api/v1/surveys/{id}/validation`) that systematically holds out individual observations, calculates interpolated predictions from remaining points, and reports empirical Mean Absolute Error (MAE in dBm), RMSE, signed error bounds, error distribution histograms, and sparsity alerts.
+9. **Export Composite Heatmap PNG:** Direct client-side generation and download of complete high-resolution survey maps with floor plan, heatmap overlay, markers, and title block.
+10. **4-Step Survey Workflow Stepper:** Clear visual progress indicators tracking Floor Plan readiness, Survey Session initialization, Point count thresholds (3 minimum for IDW, 8+ recommended for LOOCV), and Heatmap calculation status.
+11. **Per-SSID Network Isolation:** Heatmaps segregate measurements by SSID to prevent mixing disparate networks.
+12. **Production Verification & Test Baseline:** Full backend test suite passing with **213 tests** (0 failures, up from baseline 212), frontend TypeScript build passing with 0 errors, full-spectrum Playwright E2E browser verification at Desktop (1440 × 900) and Mobile (390 × 844) with 0 console errors, Alembic schema cleanly in sync, and operational database `airgrid_db` completely preserved.
 
 ---
 
@@ -165,8 +170,13 @@ When ready to conduct a physical survey, the operator follows this 10-step proce
 | Requirement | Description | Status | Evidence |
 | :--- | :--- | :--- | :--- |
 | **Coordinate System & Scaling** | Real-world distance scaling (meters) & pixel mapping | **PASS** | Validated in `FloorPlanSurveyCanvas.tsx` & `survey_service.py` |
+| **In-Studio Plan Setup & Outlines** | Direct blueprint upload or dimensioned outline creation | **PASS** | Validated in `test_create_floor_outline_plan` & Playwright E2E |
+| **In-Studio Scale Calibration** | Fast width-based & 2-point reference line calibration | **PASS** | Validated in `FloorPlanCalibrationModal.tsx` & E2E suite |
 | **Real Wi-Fi Survey Workflow** | Read-only wireless link inspection via `iw`/`NetworkManager` | **PASS** | Live telemetry endpoint & `collect_live_measurement` tested |
 | **PHY Link Rates in Surveys** | Negotiated RX/TX bitrates captured and displayed | **PASS** | Stored in `SurveyMeasurement` & shown in Point Inspector |
+| **Point Inspector Model Comparison** | Side-by-side IDW prediction and signed residual (Δ) | **PASS** | Tested in `FloorPlanSurveyCanvas.tsx` & Playwright E2E |
+| **Composite Heatmap Export** | High-res PNG export with floor plan, heatmap & legend | **PASS** | Tested in canvas export handler & Playwright E2E |
+| **Workflow Progress Stepper** | 4-step progress tracking for operator site surveys | **PASS** | Verified in `SurveyHeader.tsx` & Playwright E2E |
 | **Survey Session Management** | Create, view, point placement, finish, and retrieve | **PASS** | End-to-end flow validated in Playwright E2E |
 | **IDW Spatial Interpolation** | $p=2.0$, $\epsilon=0.5$ m, 18m radius cutoff, convex hull | **PASS** | Evaluated in pytest suite and canvas rendering |
 | **Masked Unknown Areas** | Transparent rendering for unsupported regions (>18m / hull) | **PASS** | Verified in `HeatmapOverlay.tsx` and Signal Legend |
@@ -174,10 +184,10 @@ When ready to conduct a physical survey, the operator follows this 10-step proce
 | **Empirical Cross-Validation** | LOOCV holdout evaluation with MAE in dBm and RMSE | **PASS** | Tested in `test_leave_one_out_cross_validation` & UI |
 | **SSID Segregation** | Per-network filtering to avoid mixing networks | **PASS** | Verified via `network_label` query parameters |
 | **Audit & Provenance** | Immutable audit logs and `field_instrument_verified` | **PASS** | Recorded in `audit_logs` table for all mutations |
-| **Backend Test Suite** | Full pytest regression suite | **PASS** | **212 passed in 154.25s (100% green)** |
-| **Frontend Production Build** | TypeScript verification and Vite bundle | **PASS** | Built in 3.46s with 0 errors |
+| **Backend Test Suite** | Full pytest regression suite | **PASS** | **213 passed in 98.99s (100% green)** |
+| **Frontend Production Build** | TypeScript verification and Vite bundle | **PASS** | Built in 1.82s with 0 errors |
 | **Browser Acceptance** | Desktop (1440x900) & Mobile (390x844) verification | **PASS** | Tested with Playwright, 0 console errors |
-| **Data Preservation** | Operational `airgrid_db` completely untouched | **PASS** | 2 sessions, 13 points, 41 speed tests, 14 snapshots verified |
+| **Data Preservation** | Operational `airgrid_db` completely untouched | **PASS** | 4 campuses, 4 floors, 3 assets, 2 sessions, 13 points, 41 speed tests, 14 snapshots verified |
 | **Genuine Spatial Field Validation** | Real physical survey on authorized building floor plan | **PENDING** | **Awaiting operator upload of real floor plan & physical walk-through** |
 
 ---

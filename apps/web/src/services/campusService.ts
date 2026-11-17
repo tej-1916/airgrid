@@ -11,6 +11,7 @@ import {
   FloorUpdatePayload,
   FloorPlanAsset,
   CalibrationPayload,
+  FloorOutlinePayload,
 } from '../types/campus';
 
 export interface CampusListResult {
@@ -118,6 +119,13 @@ export const campusService = {
   async calibrateFloorPlan(planId: string, data: CalibrationPayload): Promise<FloorPlanAsset> {
     return apiRequest<FloorPlanAsset>(`/api/v1/floor-plans/${planId}/calibration`, {
       method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async createFloorOutline(floorId: string, data: FloorOutlinePayload): Promise<FloorPlanAsset> {
+    return apiRequest<FloorPlanAsset>(`/api/v1/floors/${floorId}/outline-plan`, {
+      method: 'POST',
       body: JSON.stringify(data),
     });
   },

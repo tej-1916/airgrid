@@ -29,6 +29,8 @@ import { SurveyAnalysisPanel } from '../components/survey/SurveyAnalysisPanel';
 import { SurveyHistoryModal } from '../components/survey/SurveyHistoryModal';
 import { SurveyComparisonModal } from '../components/survey/SurveyComparisonModal';
 import { SurveyCreateModal } from '../components/survey/SurveyCreateModal';
+import { FloorPlanSetupModal } from '../components/survey/FloorPlanSetupModal';
+import { FloorPlanCalibrationModal } from '../components/survey/FloorPlanCalibrationModal';
 import { TelemetrySnapshot } from '../types/diagnostics';
 
 export const HeatmapsPage: React.FC = () => {
@@ -79,6 +81,8 @@ export const HeatmapsPage: React.FC = () => {
   // Modals state
   const [createModalOpen, setCreateModalOpen] = useState<boolean>(false);
   const [historyModalOpen, setHistoryModalOpen] = useState<boolean>(false);
+  const [setupModalOpen, setSetupModalOpen] = useState<boolean>(false);
+  const [calibModalOpen, setCalibModalOpen] = useState<boolean>(false);
   const [comparisonResult, setComparisonResult] = useState<SurveyComparisonResponse | null>(null);
 
   // Loading and feedback states
@@ -196,6 +200,44 @@ export const HeatmapsPage: React.FC = () => {
       setFeedbackMsg({ type: 'error', text: err.message || 'Failed to create survey session.' });
       throw err;
     }
+  };
+
+  // 4b. Handle floor plan upload or outline creation
+  const handlePlanCreated = (newPlan: FloorPlanAsset) => {
+    setFloorPlan(newPlan);
+    if (activeFloor) {
+      setActiveFloor({
+        ...activeFloor,
+        has_floor_plan: true,
+        floor_plan: newPlan,
+      });
+    }
+    setFeedbackMsg({
+      type: 'success',
+      text: `Floor plan ${newPlan.is_calibrated ? 'calibrated outline created' : 'uploaded'} successfully.`,
+    });
+    if (selectedFloorId) {
+      loadFloorSurveys(selectedFloorId);
+    }
+  };
+
+  // 4c. Handle floor plan scale calibration
+  const handlePlanCalibrated = (calibratedPlan: FloorPlanAsset) => {
+    setFloorPlan(calibratedPlan);
+    if (activeFloor) {
+      const w = Math.round((calibratedPlan.pixel_width / calibratedPlan.scale_pixels_per_meter) * 10) / 10;
+      const h = Math.round((calibratedPlan.pixel_height / calibratedPlan.scale_pixels_per_meter) * 10) / 10;
+      setActiveFloor({
+        ...activeFloor,
+        dimensions_width_m: w,
+        dimensions_height_m: h,
+        floor_plan: calibratedPlan,
+      });
+    }
+    setFeedbackMsg({
+      type: 'success',
+      text: `Scale calibrated: ${calibratedPlan.scale_pixels_per_meter.toFixed(2)} px/meter.`,
+    });
   };
 
   // 5. Complete active survey session
@@ -552,6 +594,7 @@ export const HeatmapsPage: React.FC = () => {
         campusName={selectedCampus?.name}
         buildingName={selectedBuilding?.name}
         floorName={activeFloor?.name}
+        floorPlan={floorPlan}
         activeSession={activeSession}
         onNewSurvey={() => setCreateModalOpen(true)}
         onCompleteSurvey={handleCompleteSurvey}
@@ -560,6 +603,8 @@ export const HeatmapsPage: React.FC = () => {
           setHistoryModalOpen(true);
         }}
         onGenerateHeatmap={handleGenerateHeatmap}
+        onOpenSetup={() => setSetupModalOpen(true)}
+        onOpenCalibrate={() => setCalibModalOpen(true)}
         canMutate={isEngineerOrAdmin}
         generatingHeatmap={generatingHeatmap}
         isHeatmapAvailable={Boolean(heatmap)}
@@ -587,6 +632,8 @@ export const HeatmapsPage: React.FC = () => {
             }}
             onDeleteMeasurement={handleDeleteMeasurement}
             onRepositionMeasurement={handleRepositionMeasurement}
+            onOpenSetupModal={() => setSetupModalOpen(true)}
+            onOpenCalibrateModal={() => setCalibModalOpen(true)}
             canMutate={isEngineerOrAdmin}
             availableNetworks={availableNetworks}
             selectedNetwork={selectedNetwork}
@@ -669,6 +716,23 @@ export const HeatmapsPage: React.FC = () => {
       <SurveyComparisonModal
         comparison={comparisonResult}
         onClose={() => setComparisonResult(null)}
+      />
+
+      {/* In-Studio Floor Plan Setup Modal (Upload / Outline) */}
+      <FloorPlanSetupModal
+        isOpen={setupModalOpen}
+        onClose={() => setSetupModalOpen(false)}
+        floor={activeFloor}
+        onPlanCreated={handlePlanCreated}
+      />
+
+      {/* In-Studio Scale Calibration Modal (Dimensions / 2-Point) */}
+      <FloorPlanCalibrationModal
+        isOpen={calibModalOpen}
+        onClose={() => setCalibModalOpen(false)}
+        floorPlan={floorPlan}
+        floor={activeFloor}
+        onCalibrated={handlePlanCalibrated}
       />
     </div>
   );

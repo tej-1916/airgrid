@@ -3,7 +3,7 @@ import math
 import os
 import uuid
 from typing import Optional, List, Tuple
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from fastapi import HTTPException, status
 from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +20,7 @@ from airgrid.schemas.campus import (
     FloorCreate,
     FloorUpdate,
     CalibrationRequest,
+    FloorOutlineCreateRequest,
 )
 from airgrid.services.auth_service import log_auth_audit_event
 
@@ -860,6 +861,148 @@ async def calibrate_floor_plan(
         ip_address=ip_address,
     )
     return await get_floor_plan_by_id(db, plan_id_val)
+
+
+def generate_floor_outline_image(
+    width_m: float,
+    height_m: float,
+    grid_interval_m: float = 5.0,
+    title: str = "Floor Outline",
+) -> Tuple[bytes, float, int, int]:
+    """
+    Renders a crisp architectural floor outline image with perimeter walls,
+    regular dimensioned grid lines, metric scale markings, and a title block.
+    Returns (png_bytes, scale_px_per_m, pixel_width, pixel_height).
+    """
+    scale = max(10.0, min(40.0, round(1200.0 / max(width_m, 1.0), 2)))
+    pixel_width = max(200, int(round(width_m * scale)))
+    pixel_height = max(150, int(round(height_m * scale)))
+
+    img = Image.new("RGB", (pixel_width, pixel_height), color=(248, 250, 252))
+    draw = ImageDraw.Draw(img)
+
+    # 1. Subtle grid lines for distance measurement
+    grid_px = grid_interval_m * scale
+    if grid_px >= 15:
+        x = grid_px
+        while x < pixel_width:
+            draw.line([(x, 0), (x, pixel_height)], fill=(226, 232, 240), width=1)
+            x += grid_px
+        y = grid_px
+        while y < pixel_height:
+            draw.line([(0, y), (pixel_width, y)], fill=(226, 232, 240), width=1)
+            y += grid_px
+
+    # 2. Outer structural boundary wall (thick dark slate stroke)
+    wall_thickness = max(3, int(round(scale * 0.25)))
+    inset = wall_thickness // 2
+    draw.rectangle(
+        [(inset, inset), (pixel_width - 1 - inset, pixel_height - 1 - inset)],
+        outline=(30, 41, 59),
+        width=wall_thickness,
+    )
+
+    # 3. Corner structural column markers
+    col_size = max(6, int(round(scale * 0.5)))
+    draw.rectangle([(0, 0), (col_size, col_size)], fill=(15, 23, 42))
+    draw.rectangle([(pixel_width - col_size, 0), (pixel_width, col_size)], fill=(15, 23, 42))
+    draw.rectangle([(0, pixel_height - col_size), (col_size, pixel_height)], fill=(15, 23, 42))
+    draw.rectangle([(pixel_width - col_size, pixel_height - col_size), (pixel_width, pixel_height)], fill=(15, 23, 42))
+
+    # 4. Dimension callout labels
+    top_label = f"<--  {width_m:.1f} m  -->"
+    side_label = f"^  {height_m:.1f} m  v"
+    draw.text((max(10, pixel_width // 2 - 45), wall_thickness + 4), top_label, fill=(100, 116, 139))
+    draw.text((wall_thickness + 6, max(10, pixel_height // 2 - 10)), side_label, fill=(100, 116, 139))
+
+    # 5. Informational title stamp in bottom-left
+    title_box_w = min(280, pixel_width - 20)
+    title_box_h = 44
+    t_x0 = wall_thickness + 10
+    t_y0 = pixel_height - wall_thickness - title_box_h - 10
+    if t_y0 > wall_thickness + 20 and title_box_w > 120:
+        draw.rectangle(
+            [(t_x0, t_y0), (t_x0 + title_box_w, t_y0 + title_box_h)],
+            fill=(255, 255, 255),
+            outline=(203, 213, 225),
+            width=1,
+        )
+        draw.text((t_x0 + 8, t_y0 + 6), title[:30], fill=(15, 23, 42))
+        draw.text(
+            (t_x0 + 8, t_y0 + 22),
+            f"{width_m:.1f}m x {height_m:.1f}m | Scale: {scale:.1f} px/m",
+            fill=(100, 116, 139),
+        )
+
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", optimize=True)
+    return buf.getvalue(), scale, pixel_width, pixel_height
+
+
+async def create_floor_outline_plan(
+    db: AsyncSession,
+    floor_id: uuid.UUID,
+    data: FloorOutlineCreateRequest,
+    current_user: User,
+    ip_address: Optional[str] = None,
+) -> FloorPlanAsset:
+    """
+    Generates an architectural dimensioned floor outline schematic and saves it as the FloorPlanAsset.
+    Sets is_calibrated=True and scale_pixels_per_meter to the generated scale.
+    """
+    floor = await get_floor_by_id(db, floor_id, current_user=current_user)
+
+    title = data.label or floor.name or "Floor Outline"
+    png_bytes, scale, width_px, height_px = generate_floor_outline_image(
+        width_m=data.width_m,
+        height_m=data.height_m,
+        grid_interval_m=data.grid_interval_m,
+        title=title,
+    )
+
+    clean_name = (floor.name or "floor").lower().replace(" ", "_")
+    filename = f"{clean_name}_outline.png"
+    plan = await save_floor_plan(
+        db=db,
+        floor_id=floor_id,
+        file_bytes=png_bytes,
+        original_filename=filename,
+        current_user=current_user,
+        ip_address=ip_address,
+    )
+
+    # Mark calibrated with exact dimensions
+    plan.is_calibrated = True
+    plan.scale_pixels_per_meter = scale
+    plan.calibration_metadata = {
+        "method": "dimension_outline",
+        "width_m": data.width_m,
+        "height_m": data.height_m,
+        "grid_interval_m": data.grid_interval_m,
+        "scale_pixels_per_meter": scale,
+    }
+    floor.dimensions_width_m = data.width_m
+    floor.dimensions_height_m = data.height_m
+
+    await db.commit()
+    await db.refresh(plan)
+
+    await log_auth_audit_event(
+        db=db,
+        action="floor_plan.outline_created",
+        actor_id=current_user.id,
+        payload={
+            "plan_id": str(plan.id),
+            "floor_id": str(floor.id),
+            "width_m": data.width_m,
+            "height_m": data.height_m,
+            "scale_pixels_per_meter": scale,
+        },
+        ip_address=ip_address,
+    )
+
+    return plan
+
 
 
 # =========================================================================
