@@ -24,7 +24,9 @@ from airgrid.models.all_models import (
     AIChatConversation,
     AIChatMessage,
     AnalysisRecord,
+    Building,
     Campus,
+    Floor,
     InternetSpeedTest,
     NetworkDiagnosticFinding,
     NetworkDiagnosticReport,
@@ -75,20 +77,26 @@ async def gather_network_intelligence(
     citations: List[dict] = []
     lines: List[str] = []
 
-    # 1. Access Control
-    authorized_campus_ids = None
+    # 1. Access Control & Tenant Authorization
     if user.role != "administrator":
         authorized_campus_ids = await get_authorized_campus_ids(db, user)
         if not authorized_campus_ids:
             return "No authorized campus data accessible for this account.", []
         if campus_id and campus_id not in authorized_campus_ids:
             return "Selected campus is not accessible for this account.", []
-
-    target_campus_ids = [campus_id] if campus_id else (authorized_campus_ids or [])
+        target_campus_ids = [campus_id] if campus_id else list(authorized_campus_ids)
+    else:
+        if campus_id:
+            campus = await db.get(Campus, campus_id)
+            if not campus:
+                return "Selected campus was not found.", []
+            target_campus_ids = [campus_id]
+        else:
+            target_campus_ids = None
 
     # 2. Campuses Overview
-    campus_stmt = select(Campus)
-    if target_campus_ids:
+    campus_stmt = select(Campus).order_by(desc(Campus.created_at))
+    if target_campus_ids is not None:
         campus_stmt = campus_stmt.where(Campus.id.in_(target_campus_ids))
     campuses_res = await db.execute(campus_stmt.limit(5))
     campuses = campuses_res.scalars().all()
@@ -106,9 +114,11 @@ async def gather_network_intelligence(
                 "provenance": "MEASURED",
             })
 
-    # 3. Latest Speed Tests
-    speed_stmt = select(InternetSpeedTest).order_by(desc(InternetSpeedTest.executed_at)).limit(5)
-    speed_res = await db.execute(speed_stmt)
+    # 3. Latest Speed Tests (Scoped to authorized campuses)
+    speed_stmt = select(InternetSpeedTest).order_by(desc(InternetSpeedTest.executed_at))
+    if target_campus_ids is not None:
+        speed_stmt = speed_stmt.where(InternetSpeedTest.campus_id.in_(target_campus_ids))
+    speed_res = await db.execute(speed_stmt.limit(5))
     speed_tests = speed_res.scalars().all()
     if speed_tests:
         lines.append("\n### Recent Speed Tests [MEASURED]")
@@ -134,9 +144,11 @@ async def gather_network_intelligence(
     else:
         lines.append("\n### Recent Speed Tests\n- No recorded internet speed tests found.")
 
-    # 4. Live Network Telemetry Snapshots
-    telemetry_stmt = select(NetworkTelemetrySnapshot).order_by(desc(NetworkTelemetrySnapshot.collected_at)).limit(5)
-    telemetry_res = await db.execute(telemetry_stmt)
+    # 4. Live Network Telemetry Snapshots (Scoped to authorized campuses)
+    telemetry_stmt = select(NetworkTelemetrySnapshot).order_by(desc(NetworkTelemetrySnapshot.collected_at))
+    if target_campus_ids is not None:
+        telemetry_stmt = telemetry_stmt.where(NetworkTelemetrySnapshot.campus_id.in_(target_campus_ids))
+    telemetry_res = await db.execute(telemetry_stmt.limit(5))
     telemetry_list = telemetry_res.scalars().all()
     if telemetry_list:
         lines.append("\n### Live Telemetry Snapshots [MEASURED]")
@@ -158,9 +170,15 @@ async def gather_network_intelligence(
                 "provenance": "MEASURED",
             })
 
-    # 5. Wi-Fi Survey Sessions & Coverage
-    survey_stmt = select(SurveySession).options(selectinload(SurveySession.measurements)).order_by(desc(SurveySession.created_at)).limit(3)
-    survey_res = await db.execute(survey_stmt)
+    # 5. Wi-Fi Survey Sessions & Coverage (Scoped to authorized campuses)
+    survey_stmt = (
+        select(SurveySession)
+        .options(selectinload(SurveySession.measurements))
+        .order_by(desc(SurveySession.created_at))
+    )
+    if target_campus_ids is not None:
+        survey_stmt = survey_stmt.where(SurveySession.campus_id.in_(target_campus_ids))
+    survey_res = await db.execute(survey_stmt.limit(3))
     surveys = survey_res.scalars().all()
     if surveys:
         lines.append("\n### Wi-Fi Survey Coverage [MEASURED & INTERPOLATED_ESTIMATE]")
@@ -195,9 +213,15 @@ async def gather_network_intelligence(
     else:
         lines.append("\n### Wi-Fi Survey Coverage\n- No survey sessions recorded yet.")
 
-    # 6. Network Diagnostic Findings & Audits
-    findings_stmt = select(NetworkDiagnosticFinding).order_by(desc(NetworkDiagnosticFinding.created_at)).limit(6)
-    findings_res = await db.execute(findings_stmt)
+    # 6. Network Diagnostic Findings & Audits (Scoped to authorized campuses via report join)
+    findings_stmt = (
+        select(NetworkDiagnosticFinding)
+        .join(NetworkDiagnosticReport, NetworkDiagnosticFinding.report_id == NetworkDiagnosticReport.id)
+        .order_by(desc(NetworkDiagnosticFinding.created_at))
+    )
+    if target_campus_ids is not None:
+        findings_stmt = findings_stmt.where(NetworkDiagnosticReport.campus_id.in_(target_campus_ids))
+    findings_res = await db.execute(findings_stmt.limit(6))
     findings = findings_res.scalars().all()
     if findings:
         lines.append("\n### Network Diagnostic Findings [MEASURED]")
@@ -218,11 +242,18 @@ async def gather_network_intelligence(
                 "provenance": "MEASURED",
             })
 
-    # 7. Access Points & Hardware Statistics
-    ap_stmt = select(func.count(AccessPoint.id))
+    # 7. Access Points & Hardware Statistics (Scoped to authorized campuses via building join)
+    ap_stmt = (
+        select(func.count(AccessPoint.id))
+        .select_from(AccessPoint)
+        .join(Floor, AccessPoint.floor_id == Floor.id)
+        .join(Building, Floor.building_id == Building.id)
+    )
+    if target_campus_ids is not None:
+        ap_stmt = ap_stmt.where(Building.campus_id.in_(target_campus_ids))
     ap_res = await db.execute(ap_stmt)
     total_aps = ap_res.scalar() or 0
-    lines.append(f"\n### Hardware & Infrastructure [MEASURED]\n- Total Managed APs: {total_aps}")
+    lines.append(f"\n### Hardware & Infrastructure [MEASURED]\n- Managed APs in Authorized Scope: {total_aps}")
 
     return "\n".join(lines), citations
 

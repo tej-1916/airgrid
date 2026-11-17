@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 
 from airgrid.api.deps import get_current_user, require_authenticated, verify_csrf
 from airgrid.core.database import get_db
-from airgrid.models.all_models import AIChatConversation, AIChatMessage, User
+from airgrid.models.all_models import AIChatConversation, AIChatMessage, Campus, User
 from airgrid.schemas.copilot import (
     ChatMessageCreate,
     ChatMessageResponse,
@@ -23,6 +23,7 @@ from airgrid.schemas.copilot import (
     ConversationUpdate,
 )
 from airgrid.services.ai_gateway import ai_gateway
+from airgrid.services.campus_service import require_campus_access
 from airgrid.services.copilot_service import (
     build_copilot_system_prompt,
     build_messages_history,
@@ -80,7 +81,14 @@ async def create_conversation(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Create a new AI Copilot conversation."""
+    """Create a new AI Copilot conversation with campus authorization enforcement."""
+    if req.campus_id:
+        campus = await db.get(Campus, req.campus_id)
+        if not campus:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campus not found.")
+        if user.role != "administrator":
+            await require_campus_access(db, user, req.campus_id)
+
     conversation = AIChatConversation(
         user_id=user.id,
         title=req.title.strip() if req.title and req.title.strip() else "New Conversation",
@@ -130,7 +138,7 @@ async def update_conversation(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Rename a conversation or change its default model."""
+    """Rename a conversation or change its default model/campus with authorization checks."""
     stmt = (
         select(AIChatConversation)
         .options(selectinload(AIChatConversation.messages))
@@ -145,6 +153,13 @@ async def update_conversation(
         conv.title = req.title.strip()
     if req.model is not None and req.model.strip():
         conv.model = req.model.strip()
+    if req.campus_id is not None:
+        campus = await db.get(Campus, req.campus_id)
+        if not campus:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Campus not found.")
+        if user.role != "administrator":
+            await require_campus_access(db, user, req.campus_id)
+        conv.campus_id = req.campus_id
 
     conv.updated_at = datetime.now(timezone.utc)
     await db.commit()
@@ -188,6 +203,10 @@ async def send_message(
     conv = res.scalar_one_or_none()
     if not conv:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
+
+    # Campus authorization check before message intake or AI processing
+    if conv.campus_id and user.role != "administrator":
+        await require_campus_access(db, user, conv.campus_id)
 
     # 1. Save user message
     user_content_clean = sanitize_text(req.content.strip())
@@ -269,6 +288,10 @@ async def stream_message(
     conv = res.scalar_one_or_none()
     if not conv:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
+
+    # Campus authorization check before message intake or AI processing
+    if conv.campus_id and user.role != "administrator":
+        await require_campus_access(db, user, conv.campus_id)
 
     # 1. Save user message
     user_content_clean = sanitize_text(req.content.strip())

@@ -15,6 +15,7 @@ class ConversationUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     title: Optional[str] = Field(default=None, min_length=1, max_length=150)
     model: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    campus_id: Optional[uuid.UUID] = None
 
 
 class ChatMessageCreate(BaseModel):
