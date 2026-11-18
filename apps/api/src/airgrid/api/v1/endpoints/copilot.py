@@ -302,6 +302,7 @@ async def stream_message(
         await gather_floor_authorize(db, user, req.floor_id, conv.campus_id)  # 403/404 before intake and before any provider call
 
     # 1. Save user message (or, on retry, re-run the stored one and drop the failed reply: no duplicates)
+    retrying = False
     if req.retry:
         tail_res = await db.execute(
             select(AIChatMessage)
@@ -313,13 +314,15 @@ async def stream_message(
         failed = []
         while tail and tail[0].role == "assistant" and tail[0].status == "error":
             failed.append(tail.pop(0))
-        if not tail or tail[0].role != "user":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to retry in this conversation.")
-        for m in failed:
-            await db.delete(m)
-        conv.updated_at = datetime.now(timezone.utc)
-        await db.commit()
-    else:
+        # Only a stored, unanswered user message can be re-run. Otherwise the earlier request never reached the
+        # server (e.g. the connection dropped first), nothing exists to duplicate, and the retry is an ordinary send.
+        retrying = bool(tail) and tail[0].role == "user"
+        if retrying:
+            for m in failed:
+                await db.delete(m)
+            conv.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+    if not retrying:
         user_content_clean = sanitize_text(req.content.strip())
         db.add(AIChatMessage(conversation_id=conv.id, role="user", content=user_content_clean, status="completed"))
         if conv.title in ("New Conversation", "AirGrid Copilot Chat"):
