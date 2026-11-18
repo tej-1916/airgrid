@@ -35,7 +35,6 @@ interface NavItem {
   name: string;
   path: string;
   icon: React.ElementType;
-  phaseBadge?: string;
   isImplemented?: boolean;
 }
 
@@ -53,13 +52,13 @@ const navSections: NavSection[] = [
       { name: '3D Campus', path: '/campus-3d', icon: Box, isImplemented: true },
       { name: 'Wi-Fi Heatmaps', path: '/heatmaps', icon: MapPin, isImplemented: true },
       { name: 'Network Speed Test', path: '/speed-test', icon: Gauge, isImplemented: true },
-      { name: 'Live Network Monitor', path: '/monitor', icon: Activity, phaseBadge: 'P03' },
+      { name: 'Network Monitor', path: '/monitor', icon: Activity },
     ],
   },
   {
     title: 'Infrastructure',
     items: [
-      { name: 'Devices & APs', path: '/devices', icon: RouterIcon, phaseBadge: 'P03' },
+      { name: 'Devices & APs', path: '/devices', icon: RouterIcon },
       { name: 'ML Prediction Lab', path: '/ml-lab', icon: BrainCircuit, isImplemented: true },
       { name: 'Optimization Studio', path: '/optimization', icon: Sliders, isImplemented: true },
     ],
@@ -67,17 +66,17 @@ const navSections: NavSection[] = [
   {
     title: 'Intelligence',
     items: [
-      { name: 'AI Copilot', path: '/ai-copilot', icon: Sparkles, phaseBadge: 'Live', isImplemented: true },
+      { name: 'AI Copilot', path: '/ai-copilot', icon: Sparkles, isImplemented: true },
       { name: 'Network Diagnostics', path: '/diagnostics', icon: Activity, isImplemented: true },
       { name: 'AirGrid Analyst', path: '/ai-analyst', icon: BrainCircuit, isImplemented: true },
-      { name: 'AI Model Control', path: '/ai-models', icon: Cpu, phaseBadge: 'P07' },
+      { name: 'AI Model Control', path: '/ai-models', icon: Cpu },
     ],
   },
   {
     title: 'Operations',
     items: [
-      { name: 'Alerts & Inbox', path: '/alerts', icon: Bell, phaseBadge: 'P06' },
-      { name: 'Analytics & Reports', path: '/reports', icon: BarChart3, phaseBadge: 'P06' },
+      { name: 'Alerts & Inbox', path: '/alerts', icon: Bell },
+      { name: 'Analytics & Reports', path: '/reports', icon: BarChart3 },
     ],
   },
   {
@@ -205,11 +204,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         {!collapsed && (
                           <div className="flex-1 flex items-center justify-between min-w-0">
                             <span className="truncate">{item.name}</span>
-                            {item.phaseBadge && (
-                              <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-[#ECECE8] text-[#737373] border border-[#D9DBDE]">
-                                {item.phaseBadge}
-                              </span>
-                            )}
                           </div>
                         )}
                       </>

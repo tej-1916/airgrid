@@ -17,7 +17,7 @@ const routeTitleMap: Record<string, string> = {
   '/heatmaps': 'Wi-Fi Heatmap Studio',
   '/speed-test': 'Network Speed Test Lab',
   '/devices': 'Device & Access Point Manager',
-  '/monitor': 'Live Network Monitor',
+  '/monitor': 'Network Monitor',
   '/ai-diagnostics': 'Network Diagnostics',
   '/diagnostics': 'Network Diagnostics',
   '/ai-analyst': 'AirGrid Analyst',
@@ -124,11 +124,6 @@ export const Header: React.FC<HeaderProps> = ({ onToggleMobileMenu }) => {
             <span className="text-[#737373]">Checking...</span>
           )}
         </div>
-
-        {/* Platform Status Badge */}
-        <span className="hidden sm:inline-flex text-[11px] font-mono px-2 py-0.5 rounded bg-[#ECECE8] text-[#0B0B0D] font-medium border border-[#D9DBDE]" title="Full-Stack Campus Intelligence & AI Gateway">
-          Operational · 17 Routes Active
-        </span>
 
         {/* AI Copilot Quick Drawer Trigger */}
         <button
