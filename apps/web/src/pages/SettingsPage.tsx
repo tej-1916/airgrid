@@ -1,15 +1,27 @@
 import React, { useEffect, useState } from 'react';
-import { Shield, Server, CheckCircle2, KeyRound, Radio } from 'lucide-react';
+import { Shield, Server, CheckCircle2, AlertTriangle, KeyRound, Radio } from 'lucide-react';
+import { apiRequest } from '../services/api';
 
 export const SettingsPage: React.FC = () => {
   const [healthData, setHealthData] = useState<any>(null);
+  const [healthError, setHealthError] = useState(false);
+  const [limits, setLimits] = useState<{ max_mb: number; duration_seconds: number } | null>(null);
 
   useEffect(() => {
+    let active = true;
     fetch('/api/v1/health')
-      .then((res) => res.json())
-      .then((data) => setHealthData(data))
-      .catch(() => setHealthData(null));
+      .then((res) => { if (!res.ok) throw new Error(String(res.status)); return res.json(); })
+      .then((data) => { if (active) setHealthData(data); })
+      .catch(() => { if (active) setHealthError(true); });
+    apiRequest<{ max_mb: number; duration_seconds: number }>('/api/v1/speed-tests/config')
+      .then((cfg) => { if (active) setLimits(cfg); })
+      .catch(() => undefined);
+    return () => { active = false; };
   }, []);
+
+  const unavailable = 'Unavailable';
+  const dbStatus: string | undefined = healthData?.dependencies?.database?.status;
+  const healthy = healthData?.status === 'healthy';
 
   return (
     <div className="space-y-6">
@@ -22,8 +34,8 @@ export const SettingsPage: React.FC = () => {
           </p>
         </div>
         <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-[#F5F5F3] border border-[#D9DBDE] rounded-md text-xs font-medium text-[#0B0B0D]/80">
-          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Operational</span>
+          {healthy ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" /> : <AlertTriangle className="w-3.5 h-3.5 text-amber-600" />}
+          <span>{healthError ? 'Status unavailable' : !healthData ? 'Checking…' : healthy ? 'Operational' : 'Degraded'}</span>
         </div>
       </div>
 
@@ -38,20 +50,20 @@ export const SettingsPage: React.FC = () => {
           <div className="space-y-2 text-xs font-mono">
             <div className="p-3 rounded-lg bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between">
               <span className="text-[#0B0B0D]/60">Environment:</span>
-              <span className="font-semibold text-[#0B0B0D]">{healthData?.environment || 'development'}</span>
+              <span className="font-semibold text-[#0B0B0D]">{healthData?.environment ?? unavailable}</span>
             </div>
             <div className="p-3 rounded-lg bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between">
               <span className="text-[#0B0B0D]/60">API Version:</span>
-              <span className="font-semibold text-[#0B0B0D]">{healthData?.version || '0.1.0-final'}</span>
+              <span className="font-semibold text-[#0B0B0D]">{healthData?.version ?? unavailable}</span>
             </div>
             <div className="p-3 rounded-lg bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between">
               <span className="text-[#0B0B0D]/60">Uptime:</span>
-              <span className="font-semibold text-emerald-600">{healthData?.uptime_seconds ? `${healthData.uptime_seconds}s` : 'Active'}</span>
+              <span className="font-semibold text-[#0B0B0D]">{healthData?.uptime_seconds != null ? `${Math.round(healthData.uptime_seconds)}s` : unavailable}</span>
             </div>
             <div className="p-3 rounded-lg bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between">
               <span className="text-[#0B0B0D]/60">PostgreSQL Status:</span>
-              <span className={`font-semibold ${healthData?.dependencies?.database?.status === 'connected' ? 'text-emerald-600' : 'text-emerald-600'}`}>
-                {healthData?.dependencies?.database?.status || 'Connected'}
+              <span className={`font-semibold ${dbStatus === 'connected' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                {dbStatus ?? unavailable}
               </span>
             </div>
           </div>
@@ -67,19 +79,15 @@ export const SettingsPage: React.FC = () => {
           <div className="space-y-2 text-xs font-mono">
             <div className="p-3 rounded-lg bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between">
               <span className="text-[#0B0B0D]/60">Speed Test Max Traffic:</span>
-              <span className="font-semibold text-[#0B0B0D]">150 MB / Run</span>
+              <span className="font-semibold text-[#0B0B0D]">{limits ? `${limits.max_mb} MB / Run` : unavailable}</span>
             </div>
             <div className="p-3 rounded-lg bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between">
               <span className="text-[#0B0B0D]/60">Speed Test Max Duration:</span>
-              <span className="font-semibold text-[#0B0B0D]">10 Seconds</span>
+              <span className="font-semibold text-[#0B0B0D]">{limits ? `${limits.duration_seconds} Seconds` : unavailable}</span>
             </div>
             <div className="p-3 rounded-lg bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between">
               <span className="text-[#0B0B0D]/60">iperf3 LAN Targets:</span>
               <span className="font-semibold text-[#0B0B0D]">Allowlisted Only</span>
-            </div>
-            <div className="p-3 rounded-lg bg-[#F5F5F3] border border-[#D9DBDE] flex items-center justify-between">
-              <span className="text-[#0B0B0D]/60">PII / MAC Hashing:</span>
-              <span className="font-semibold text-emerald-600">HMAC-SHA256 Enabled</span>
             </div>
           </div>
         </div>

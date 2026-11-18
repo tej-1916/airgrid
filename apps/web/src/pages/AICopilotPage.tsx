@@ -27,7 +27,7 @@ export const AICopilotPage: React.FC = () => {
     try {
       const [status, convList] = await Promise.all([
         copilotService.getGatewayStatus().catch(() => null),
-        copilotService.listConversations(50).catch(() => ({ conversations: [], total: 0 })),
+        copilotService.listConversations(50),
       ]);
 
       if (status) {
