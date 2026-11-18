@@ -20,7 +20,7 @@ Through Milestone 3A, AirGrid introduces and validates:
 4. **Explicit Operator Consent Flow:** A comprehensive modal (`SpeedTestConsentModal`) displaying live interface parameters, estimated wire traffic (~13–16 MB total: 10.5 MB download + 2.5 MB upload + 8 latency pings), test duration bound (<=10s), target provider (`Cloudflare Edge SDK HTTP/2`), and a mandatory confirmation gate.
 5. **Standalone Audit Scope Isolation:** The UI defaults to Standalone Audit, preventing unintentional linkage to `campus_id` or `building_id`.
 6. **No Automated Live Bandwidth Probes:** All automated CI/CD and regression tests use fixtures and mock factories; live bandwidth tests require manual operator authorization.
-7. **Verified Operational Measurement:** A genuine, authorized, bounded measurement executed on the active network (`MOJO-JAN-C2-F1`), persisted to PostgreSQL `airgrid_db`, recorded in audit logs, and retrievable via authenticated REST endpoints and frontend UI.
+7. **Verified Operational Measurement:** A genuine, authorized, bounded measurement executed on the active network (`Synthetic_Other_AP`), persisted to PostgreSQL `airgrid_db`, recorded in audit logs, and retrievable via authenticated REST endpoints and frontend UI.
 
 ---
 
@@ -100,14 +100,14 @@ flowchart TD
 
 * **Host OS:** Arch Linux (Kernel x86_64)
 * **Wireless Interface:** `wlp0s20f3`
-* **Connected SSID:** `MOJO-JAN-C2-F1`
+* **Connected SSID:** `Synthetic_Other_AP`
 * **Connected BSSID:** `02:00:5E:00:00:02`
 * **Frequency / Channel:** 5200.0 MHz (5 GHz Channel 40)
 * **Signal Strength:** `-52 dBm`
 * **Wi-Fi PHY Negotiated Rates:**
   * RX Bitrate: `1200.9 MBit/s` (160MHz HE-MCS 6 HE-NSS 1)
   * TX Bitrate: `1441.3 MBit/s` (160MHz HE-MCS 2 HE-NSS 1)
-* **Network Operator Authorization:** Explicit operator permission granted for bounded test on `MOJO-JAN-C2-F1`.
+* **Network Operator Authorization:** Explicit operator permission granted for bounded test on `Synthetic_Other_AP`.
 
 ---
 
@@ -205,7 +205,7 @@ HTTP/1.1 200 OK
 
 ### 6.4 UI Verification Evidence
 
-1. **Operator Consent Modal:** Captured and verified in [`docs/verification/screenshots/operator_consent_modal_verified.png`](file:///home/teju/Projects/airgrid/docs/verification/screenshots/operator_consent_modal_verified.png). Confirms prominent network name (`MOJO-JAN-C2-F1`), Standalone Audit scope, expected payload volume (~13–16 MB), test duration (~10s), Cloudflare engine, and explicit authorization checkbox.
+1. **Operator Consent Modal:** Captured and verified in [`docs/verification/screenshots/operator_consent_modal_verified.png`](file:///home/teju/Projects/airgrid/docs/verification/screenshots/operator_consent_modal_verified.png). Confirms prominent network name (`Synthetic_Other_AP`), Standalone Audit scope, expected payload volume (~13–16 MB), test duration (~10s), Cloudflare engine, and explicit authorization checkbox.
 2. **Speed Test Completed View:** Captured and verified in [`docs/verification/screenshots/speed_test_completed_verified.png`](file:///home/teju/Projects/airgrid/docs/verification/screenshots/speed_test_completed_verified.png). Confirms real download (51.82 Mbps), upload (15.25 Mbps), latency (4.5 ms), jitter (12.5 ms), and historical table population.
 
 ### 6.5 Historical Data Integrity
@@ -228,7 +228,7 @@ HTTP/1.1 200 OK
 | **Authorization and consent** | **PASS** | `SpeedTestConsentModal` requires explicit checkbox confirmation; verified in browser screenshot. |
 | **Database persistence** | **PASS** | Saved to PostgreSQL `airgrid_db` as record `e448def6-2704-4704-a5b0-b6380a9f0eb1` with audit log `47ae4288-8abb-4ad2-8915-40f17e9d2e8d`. |
 | **Historical reports & API retrieval** | **PASS** | Retrievable via `GET /api/v1/speed-tests/e448def6-2704-4704-a5b0-b6380a9f0eb1` (200 OK) and `GET /api/v1/speed-tests` (total 41). |
-| **Real-world measurement verified** | **PASS** | Genuine operational measurement executed on `MOJO-JAN-C2-F1` under operator authorization; RF link (1200+ Mbps) strictly separated from internet throughput (51.82 Mbps). |
+| **Real-world measurement verified** | **PASS** | Genuine operational measurement executed on `Synthetic_Other_AP` under operator authorization; RF link (1200+ Mbps) strictly separated from internet throughput (51.82 Mbps). |
 | **Automated tests** | **PASS** | 207/207 backend pytest tests passing; 3/3 frontend duration unit tests passing; clean TypeScript production build (0 errors). |
 
 ---

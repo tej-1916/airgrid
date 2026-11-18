@@ -8,7 +8,7 @@
 ### Status Breakdown:
 * **Software Implementation:** **COMPLETED** (Full-stack API, IDW engine, LOOCV harness, canvas viewer, live telemetry probe, repositioning with audit trail, in-studio plan upload & dimensioned outline generation, in-studio scale calibration, point model prediction residual inspection, composite PNG export, 4-step workflow stepper).
 * **Automated Verification:** **COMPLETED** (213 backend tests passed, TypeScript build clean, Playwright E2E passed on 1440×900 and 390×844 with 0 console errors, Alembic schema clean, operational `airgrid_db` preserved).
-* **Physical Survey Workflow:** **PREPARED & VERIFIED READY** (Operator walk-through protocol, calibration prerequisites, live read-only telemetry capture from interface `wlp0s20f3` on `MOJO-JAN-C2-F1`, LOOCV validation harness).
+* **Physical Survey Workflow:** **PREPARED & VERIFIED READY** (Operator walk-through protocol, calibration prerequisites, live read-only telemetry capture from interface `wlp0s20f3` on `Synthetic_Other_AP`, LOOCV validation harness).
 * **Genuine Spatial Validation:** **PENDING OPERATOR FIELD SURVEY** (Awaiting physical walk-through with real site floor plan and genuine physical measurements).
 * **Overall Status:** **SOFTWARE & AUTOMATION VERIFIED (PHYSICAL FIELD SURVEY PENDING)**
 
@@ -39,7 +39,7 @@ Milestone 3B establishes AirGrid's genuine spatial Wi-Fi heatmap and site-survey
 ```mermaid
 flowchart TD
     subgraph Host["Measuring Host (Arch Linux x86_64)"]
-        NIC["Wi-Fi Interface: wlp0s20f3\nConnected: MOJO-JAN-C2-F1 / 5 GHz Ch 40\nPHY Link: 576.4 Mbps RX / 244.9 Mbps TX / -59 dBm"]
+        NIC["Wi-Fi Interface: wlp0s20f3\nConnected: Synthetic_Other_AP / 5 GHz Ch 40\nPHY Link: 576.4 Mbps RX / 244.9 Mbps TX / -59 dBm"]
         Browser["AirGrid Survey Studio Client (Port 5173)\n/heatmaps route"]
         Canvas["FloorPlanSurveyCanvas\nCalibrated Scaling (px/m) & Zoom/Pan"]
         TelemetryPanel["SignalMeasurementPanel\nLive Telemetry Card & Capture Button"]
@@ -108,15 +108,15 @@ An audit of the operational database (`airgrid_db`) reveals:
 ### Finding on Real-World Ground Truth:
 **None of the existing records in `airgrid_db` represent the physical building where the measuring device currently resides.** All existing records were preserved untouched as historical development assets.
 
-For authentic physical acceptance, an authorized floor plan representing the actual building housing `MOJO-JAN-C2-F1` must be provided and calibrated.
+For authentic physical acceptance, an authorized floor plan representing the actual building housing `Synthetic_Other_AP` must be provided and calibrated.
 
 ---
 
 ## 4. Live Measuring Host & RF Environment (Read-Only Status)
 
-* **Host Machine:** `ostra` (Linux 6.16 x86_64)
+* **Host Machine:** `test-host` (Linux 6.16 x86_64)
 * **Wireless NIC:** `wlp0s20f3` (Intel Wi-Fi 6 AX201, 802.11ax)
-* **Connected SSID:** `MOJO-JAN-C2-F1`
+* **Connected SSID:** `Synthetic_Other_AP`
 * **Access Point BSSID:** `02:00:5E:00:00:02`
 * **Frequency & Channel:** 5200 MHz / Channel 40 (5 GHz Band, 160 MHz channel width)
 * **Observed RSSI:** `-59.0 dBm` (Good / Commercial Quality)
@@ -155,8 +155,8 @@ When ready to conduct a physical survey, the operator follows this 10-step proce
 1. **Select Authorized Floor:** Log in to AirGrid and navigate to `/heatmaps` (Wi-Fi Survey Studio). Select the authorized campus, building, and floor.
 2. **Create New Survey Session:** Click **"New Survey Session"**, specify a descriptive session name (e.g., `Site Survey - Wing B Floor 2`), and initialize.
 3. **Confirm Floor-Plan Dimensions:** Verify that the floor plan image matches the physical site and has calibrated scaling (pixels per meter). If not calibrated, use Campus Manager to set a known distance (e.g., measuring 15.0 meters between two architectural pillars).
-4. **Mark Physical Measurement Position:** Physically walk to the first station (e.g., Northwest Corner Desk) carrying the measuring laptop (`ostra`). Click on the floor plan canvas at that exact position.
-5. **Capture Current Connected-Wi-Fi Reading:** The **Signal Measurement Panel** opens, displaying real-time link parameters (`wlp0s20f3`, `MOJO-JAN-C2-F1`, `-59 dBm`, PHY rates). Review and confirm accuracy.
+4. **Mark Physical Measurement Position:** Physically walk to the first station (e.g., Northwest Corner Desk) carrying the measuring laptop (`test-host`). Click on the floor plan canvas at that exact position.
+5. **Capture Current Connected-Wi-Fi Reading:** The **Signal Measurement Panel** opens, displaying real-time link parameters (`wlp0s20f3`, `Synthetic_Other_AP`, `-59 dBm`, PHY rates). Review and confirm accuracy.
 6. **Save Reading with Real Provenance:** Click **"Capture Live Observation"**. AirGrid persists the measurement linked to a `NetworkTelemetrySnapshot` with provenance `field_instrument_verified` and logs an audit entry.
 7. **Repeat at Distinct Authorized Positions:** Walk to 8–15 distributed locations across the floor (corridor center, conference rooms, perimeter offices), stationing the laptop at each spot before clicking.
 8. **Generate Heatmap:** Once sufficient points are collected, click **"Generate Heatmap"** to compute the 2D IDW signal distribution.

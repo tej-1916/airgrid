@@ -43,13 +43,13 @@ async function main() {
 
   // Inspect modal content
   const modalText = await page.textContent('body');
-  const hasSSID = modalText.includes('MOJO-JAN-C1-F2');
+  const hasSSID = modalText.includes('Other-AP-JAN-C1-F2');
   const hasDuration = modalText.includes('10s');
   const hasDataCap = modalText.includes('13–16 MB') || modalText.includes('150 MB');
   const hasStandalone = modalText.includes('Standalone Audit');
 
   console.log('Modal Verification Details:');
-  console.log('- Displays connected SSID (MOJO-JAN-C1-F2):', hasSSID);
+  console.log('- Displays connected SSID (Other-AP-JAN-C1-F2):', hasSSID);
   console.log('- Displays duration cap (~10s):', hasDuration);
   console.log('- Displays traffic bounds (~13–16 MB / 150 MB):', hasDataCap);
   console.log('- Displays Standalone Audit scope:', hasStandalone);

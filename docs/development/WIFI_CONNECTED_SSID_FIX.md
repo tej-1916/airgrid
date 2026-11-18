@@ -3,14 +3,14 @@
 ## Executive Summary
 This document provides full technical documentation for the resolution of the Wi-Fi connected SSID discrepancy on AirGrid's Network Diagnostics page (`/diagnostics`).
 
-The operator is connected to the institutional Wi-Fi network **`Jain_Student`** on Arch Linux (KDE NetworkManager, interface `wlp0s20f3`), but AirGrid was displaying **`MOJO-JAN-C2-F1`** (-62.0 dBm, 5 GHz, 960.7 Mbps RX, 864.6 Mbps TX, captured on October 28, 2026).
+The operator is connected to the institutional Wi-Fi network **`Synthetic_Campus_WiFi`** on Arch Linux (KDE NetworkManager, interface `wlp0s20f3`), but AirGrid was displaying **`Synthetic_Other_AP`** (-62.0 dBm, 5 GHz, 960.7 Mbps RX, 864.6 Mbps TX, captured on October 28, 2026).
 
 ---
 
 ## 1. Root Cause Analysis
 
 ### 1.1 The Stored Historical Audit Data
-Investigation into `airgrid_db` confirmed four historical `NetworkDiagnosticReport` and `NetworkTelemetrySnapshot` records created on October 28, 2026 at 05:03:22 UTC (10:33 AM IST) for SSID `MOJO-JAN-C2-F1`. These records were legitimate, non-fabricated diagnostic audit records previously captured and stored by an operator.
+Investigation into `airgrid_db` confirmed four historical `NetworkDiagnosticReport` and `NetworkTelemetrySnapshot` records created on October 28, 2026 at 05:03:22 UTC (10:33 AM IST) for SSID `Synthetic_Other_AP`. These records were legitimate, non-fabricated diagnostic audit records previously captured and stored by an operator.
 
 ### 1.2 Data Presentation Defect
 In `apps/web/src/pages/NetworkDiagnosticsPage.tsx`:
@@ -23,7 +23,7 @@ if (!activeReport && res.reports.length > 0) {
   }
 }
 ```
-This historical telemetry snapshot (`MOJO-JAN-C2-F1`) was then directly passed to `TelemetryLiveCard.tsx` as if it were the active wireless telemetry of the operator's current session.
+This historical telemetry snapshot (`Synthetic_Other_AP`) was then directly passed to `TelemetryLiveCard.tsx` as if it were the active wireless telemetry of the operator's current session.
 
 Furthermore:
 - `TelemetryLiveCard.tsx` lacked any concept or display of the genuine active Linux network link.
@@ -39,7 +39,7 @@ Furthermore:
 1. **Active Wireless Hardware Probe (`TelemetryCollector`):**
    - Added `get_live_connection_status()` in [`telemetry_collector.py`](file:///home/teju/Projects/airgrid/apps/api/src/airgrid/services/telemetry_collector.py).
    - Dynamically identifies the connected wireless interface (`wlp0s20f3`), uses non-scanning, read-only `iw dev <iface> link` and `nmcli --terse --fields DEVICE,TYPE,STATE,CONNECTION device` without modifying Wi-Fi state or rescanning channels.
-   - Extracts genuine live metrics: SSID (`Jain_Student`), BSSID, RSSI dBm, frequency, channel, channel width, band, RX/TX negotiated PHY rates, IP address, and default gateway.
+   - Extracts genuine live metrics: SSID (`Synthetic_Campus_WiFi`), BSSID, RSSI dBm, frequency, channel, channel width, band, RX/TX negotiated PHY rates, IP address, and default gateway.
 
 2. **Pydantic Schemas (`schemas/diagnostics.py`):**
    - Added `LiveConnectionResponse` model.
@@ -58,7 +58,7 @@ Furthermore:
 5. **Network Mismatch Disclosure in AirGrid Analyst (`analyst_service.py`):**
    - Updated `AnalystService.analyze()` to check the host's current live Wi-Fi SSID.
    - If the report's telemetry SSID differs from the live connected SSID, Analyst automatically injects a prominent limitation notice disclosing the mismatch:
-     > *"Network mismatch: Report describes historical network 'MOJO-JAN-C2-F1', while this host is currently connected to 'Jain_Student'. Findings may not reflect the active wireless environment."*
+     > *"Network mismatch: Report describes historical network 'Synthetic_Other_AP', while this host is currently connected to 'Synthetic_Campus_WiFi'. Findings may not reflect the active wireless environment."*
 
 ---
 
@@ -75,14 +75,14 @@ Furthermore:
 
 3. **Redesigned `TelemetryLiveCard.tsx`:**
    - **Section 1: Current Connected Network:**
-     - Displays genuine real-time link information: SSID **`Jain_Student`**, BSSID, RSSI dBm, band (5 GHz), channel, channel width, RX/TX bitrates, and IP/gateway.
+     - Displays genuine real-time link information: SSID **`Synthetic_Campus_WiFi`**, BSSID, RSSI dBm, band (5 GHz), channel, channel width, RX/TX bitrates, and IP/gateway.
      - Pulsing green indicator with `"Live Active Link"` and `"Fresh (<2m)"` badge.
      - Dedicated `"Re-check Link"` button for quick non-intrusive re-querying of Linux network link status.
    - **Section 2: Network Mismatch Warning Banner:**
      - Displays an amber warning banner when the active Wi-Fi link differs from the loaded historical observation.
-     - Features an instant action button: `"Audit Jain_Student"`.
+     - Features an instant action button: `"Audit Synthetic_Campus_WiFi"`.
    - **Section 3: Last Recorded Observation:**
-     - Clearly displays the saved observation (`MOJO-JAN-C2-F1`) with explicit `"Stale (1d ago)"` badge.
+     - Clearly displays the saved observation (`Synthetic_Other_AP`) with explicit `"Stale (1d ago)"` badge.
      - Prominent stale notice: *"Stale Observation Notice: Captured on 10/28/2026, 10:33:22 AM. Network conditions may have changed since this snapshot was recorded."*
 
 ---
@@ -103,9 +103,9 @@ Furthermore:
 
 ### 3.3 Live Browser Verification & Playwright Acceptance
 - **Live Browser Screenshot:** Captured `/diagnostics` with active session.
-  - Verified `Jain_Student` rendered in **Current Connected Network** section with `-58.0 dBm`, `5 GHz`, `Ch 132`, `324.0 Mbps` RX.
+  - Verified `Synthetic_Campus_WiFi` rendered in **Current Connected Network** section with `-58.0 dBm`, `5 GHz`, `Ch 132`, `324.0 Mbps` RX.
   - Verified `Network Mismatch Warning` rendered with warning notice.
-  - Verified `MOJO-JAN-C2-F1` rendered in **Last Recorded Observation** section with `Stale (1d ago)` badge.
+  - Verified `Synthetic_Other_AP` rendered in **Last Recorded Observation** section with `Stale (1d ago)` badge.
 - **Automated Playwright Acceptance (`verify_final.cjs`):**
   - All 16 routes verified across Desktop (`1440x900`) and Mobile (`390x844`) viewports.
   - Result: `passed` (0 errors, 0 overflows, 0 live probe violations, 26 external requests blocked).
@@ -113,5 +113,5 @@ Furthermore:
   - Result: `passed` (10 routes verified, 0 errors).
 
 ### 3.4 Data Integrity & Preservation
-- All 4 historical `MOJO-JAN-C2-F1` snapshots and reports in `airgrid_db` remain completely preserved.
+- All 4 historical `Synthetic_Other_AP` snapshots and reports in `airgrid_db` remain completely preserved.
 - Alembic schema check: `No new upgrade operations detected`.

@@ -897,7 +897,7 @@ async def test_collect_live_measurement_success(client: AsyncClient, engineer_au
         "is_connected": True,
         "connection_state": "connected",
         "interface_name": "wlp0s20f3",
-        "ssid": "Jain_Student",
+        "ssid": "Synthetic_Campus_WiFi",
         "bssid": "02:00:5E:00:00:02",
         "frequency_mhz": 5200,
         "channel": 40,
@@ -927,7 +927,7 @@ async def test_collect_live_measurement_success(client: AsyncClient, engineer_au
     assert data["position_x"] == 250.0
     assert data["position_y"] == 180.0
     assert data["rssi_dbm"] == -52.0
-    assert data["network_label"] == "Jain_Student"
+    assert data["network_label"] == "Synthetic_Campus_WiFi"
     assert data["ap_reference"] == "02:00:5E:00:00:02"
     assert data["frequency_mhz"] == 5200
     assert data["channel"] == 40

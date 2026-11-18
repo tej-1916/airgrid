@@ -89,9 +89,9 @@ npm run dev -- --host 127.0.0.1 --port 5173
 ## 4. Real Site Survey Execution (For the Operator)
 
 ### A. Live Host Wireless Environment
-* **Host Machine:** `ostra` (Linux 6.16 x86_64)
+* **Host Machine:** `test-host` (Linux 6.16 x86_64)
 * **Wireless NIC Interface:** `wlp0s20f3` (Intel Wi-Fi 6 AX201, 802.11ax)
-* **Current Associated SSID:** `MOJO-JAN-C2-F1`
+* **Current Associated SSID:** `Synthetic_Other_AP`
 * **Access Point BSSID:** `02:00:5E:00:00:02`
 * **RF Channel & Band:** Channel 40 (5200 MHz, 160 MHz width, 5 GHz band)
 * **Local Measured RSSI:** `-59.0 dBm` (Good / Commercial Quality)

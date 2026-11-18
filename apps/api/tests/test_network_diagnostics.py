@@ -482,7 +482,7 @@ async def test_get_live_connection_endpoint(
             "is_connected": True,
             "connection_state": "connected",
             "interface_name": "wlp0s20f3",
-            "ssid": "Jain_Student",
+            "ssid": "Synthetic_Campus_WiFi",
             "bssid": "02:00:5E:00:00:01",
             "frequency_mhz": 5540,
             "channel": 108,
@@ -493,10 +493,10 @@ async def test_get_live_connection_endpoint(
             "rx_bitrate_mbps": 270.0,
             "tx_bitrate_mbps": 200.0,
             "security_protocol": "WPA2",
-            "measuring_device": "Backend host (ostra)",
-            "hostname": "ostra",
-            "ip_address": "172.20.193.203",
-            "default_gateway": "172.20.192.1",
+            "measuring_device": "Backend host (test-host)",
+            "hostname": "test-host",
+            "ip_address": "192.0.2.10",
+            "default_gateway": "192.0.2.1",
             "data_provenance": "live_system_probe",
             "checked_at": "2026-10-29T05:51:53.358520+00:00",
             "age_seconds": 0,
@@ -509,7 +509,7 @@ async def test_get_live_connection_endpoint(
     assert res.status_code == 200
     data = res.json()
     assert data["is_connected"] is True
-    assert data["ssid"] == "Jain_Student"
+    assert data["ssid"] == "Synthetic_Campus_WiFi"
     assert data["interface_name"] == "wlp0s20f3"
     assert data["rssi_dbm"] == -36.0
     assert data["freshness"] == "fresh"
@@ -523,7 +523,7 @@ async def test_analyst_network_mismatch_disclosure(
     monkeypatch,
 ):
     client.cookies = engineer_auth["cookies"]
-    # Mock live connection as Jain_Student
+    # Mock live connection as Synthetic_Campus_WiFi
     monkeypatch.setattr(
         TelemetryCollector,
         "get_live_connection_status",
@@ -531,18 +531,18 @@ async def test_analyst_network_mismatch_disclosure(
             "is_connected": True,
             "connection_state": "connected",
             "interface_name": "wlp0s20f3",
-            "ssid": "Jain_Student",
+            "ssid": "Synthetic_Campus_WiFi",
             "bssid": "02:00:5E:00:00:01",
-            "measuring_device": "Backend host (ostra)",
-            "hostname": "ostra",
+            "measuring_device": "Backend host (test-host)",
+            "hostname": "test-host",
             "data_provenance": "live_system_probe",
         },
     )
 
-    # Create a report for a DIFFERENT network (e.g. MOJO-JAN-C2-F1)
+    # Create a report for a DIFFERENT network (e.g. Synthetic_Other_AP)
     hist_telemetry = {
         "interface_name": "wlp0s20f3",
-        "ssid": "MOJO-JAN-C2-F1",
+        "ssid": "Synthetic_Other_AP",
         "bssid": "02:00:00:00:00:03",
         "rssi_dbm": -62.0,
         "frequency_mhz": 5200,
@@ -558,7 +558,7 @@ async def test_analyst_network_mismatch_disclosure(
         "/api/v1/diagnostics/analyze",
         headers={"X-CSRF-Token": engineer_auth["csrf_token"]},
         json={
-            "title": "Historical MOJO Audit",
+            "title": "Historical Other-AP Audit",
             "telemetry": hist_telemetry,
             "operator_consent": True,
         },
@@ -578,6 +578,6 @@ async def test_analyst_network_mismatch_disclosure(
     limitations = analyst_data["limitations"]
     mismatch_limitations = [lim for lim in limitations if "Network mismatch" in lim]
     assert len(mismatch_limitations) == 1
-    assert "MOJO-JAN-C2-F1" in mismatch_limitations[0]
-    assert "Jain_Student" in mismatch_limitations[0]
+    assert "Synthetic_Other_AP" in mismatch_limitations[0]
+    assert "Synthetic_Campus_WiFi" in mismatch_limitations[0]
 
