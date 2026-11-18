@@ -46,7 +46,7 @@ jobs:
       - name: Static checks (byte-compile)
         run: uv run python -m compileall -q src
       - name: Tests
-        run: uv run pytest -q -p no:cacheprovider
+        run: uv run python -m pytest -q -p no:cacheprovider
       - name: Dependency audit (Python, informational)
         run: |
           uv export --frozen --no-dev --no-hashes -o /tmp/requirements.txt
