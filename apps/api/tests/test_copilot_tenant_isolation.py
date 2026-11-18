@@ -362,6 +362,16 @@ async def test_endpoint_send_and_stream_message_revoked_access(client: AsyncClie
     )
     assert res_stream.status_code == 403, "Must block streaming if campus access revoked"
 
+    # Regenerate must be blocked too (it also builds provider context from the conversation)
+    from airgrid.models.all_models import AIChatMessage
+    async with AsyncSessionLocal() as session:
+        am = AIChatMessage(conversation_id=uuid.UUID(conv_id), role="assistant", content="earlier synthetic reply", status="completed")
+        session.add(am)
+        await session.commit()
+        msg_id = am.id
+    res_regen = await client.post(f"/api/v1/ai/copilot/conversations/{conv_id}/messages/{msg_id}/regenerate", headers=headers_a)
+    assert res_regen.status_code == 403, "Must block regenerate if campus access revoked"
+
 
 @pytest.mark.asyncio
 async def test_endpoint_cross_user_message_attempt(client: AsyncClient, multi_tenant_fixture):

@@ -56,7 +56,7 @@ flowchart TD
 ```
 
 ### Key Measurement Distinction:
-* **Wi-Fi PHY Rate:** The theoretical raw signaling speed negotiated over the wireless medium between the local wireless adapter (`wlp0s20f3`) and the AP BSSID (`50:91:E3:75:8F:C3`) based on modulation, coding scheme (MCS 6/2), guard interval, channel width (160 MHz), and spatial streams. Measured locally as **1200.9 Mbps RX / 1441.3 Mbps TX**.
+* **Wi-Fi PHY Rate:** The theoretical raw signaling speed negotiated over the wireless medium between the local wireless adapter (`wlp0s20f3`) and the AP BSSID (`02:00:5E:00:00:02`) based on modulation, coding scheme (MCS 6/2), guard interval, channel width (160 MHz), and spatial streams. Measured locally as **1200.9 Mbps RX / 1441.3 Mbps TX**.
 * **Internet Speed Test:** End-to-end application-layer throughput measured by transferring stepped payload chunks over HTTP/2 to the nearest edge PoP, factoring in local contention, router routing, ISP uplinks, and bufferbloat. Measured through Cloudflare Edge as **51.82 Mbps download / 15.25 Mbps upload**.
 
 ---
@@ -101,7 +101,7 @@ flowchart TD
 * **Host OS:** Arch Linux (Kernel x86_64)
 * **Wireless Interface:** `wlp0s20f3`
 * **Connected SSID:** `MOJO-JAN-C2-F1`
-* **Connected BSSID:** `50:91:E3:75:8F:C3`
+* **Connected BSSID:** `02:00:5E:00:00:02`
 * **Frequency / Channel:** 5200.0 MHz (5 GHz Channel 40)
 * **Signal Strength:** `-52 dBm`
 * **Wi-Fi PHY Negotiated Rates:**

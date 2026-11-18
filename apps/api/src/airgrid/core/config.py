@@ -1,6 +1,6 @@
 import os
 from typing import List, Optional, Union
-from pydantic import Field, field_validator, AliasChoices
+from pydantic import Field, field_validator, model_validator, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -129,6 +129,20 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [fmt.strip().lower() for fmt in v.split(",") if fmt.strip()]
         return [fmt.lower() for fmt in v]
+
+    @model_validator(mode="after")
+    def reject_default_secrets_in_production(self):
+        """Refuse to start production/staging with the committed development secrets."""
+        if self.AIRGRID_ENV.lower() in ("production", "prod", "staging"):
+            defaults = {
+                "AIRGRID_SECRET_KEY": "airgrid-dev-secret-key-minimum-32-chars-long",
+                "AIRGRID_WEBHOOK_SECRET": "airgrid-webhook-hmac-secret-key-32chars",
+                "AIRGRID_DB_PASSWORD": "airgrid_local_dev_secret",
+            }
+            bad = [k for k, v in defaults.items() if getattr(self, k) == v]
+            if bad:
+                raise ValueError(f"Refusing to start in {self.AIRGRID_ENV}: development default(s) still set for {', '.join(bad)}.")
+        return self
 
 
 settings = Settings()

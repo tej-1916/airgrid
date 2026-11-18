@@ -117,7 +117,7 @@ For authentic physical acceptance, an authorized floor plan representing the act
 * **Host Machine:** `ostra` (Linux 6.16 x86_64)
 * **Wireless NIC:** `wlp0s20f3` (Intel Wi-Fi 6 AX201, 802.11ax)
 * **Connected SSID:** `MOJO-JAN-C2-F1`
-* **Access Point BSSID:** `50:91:E3:75:8F:C3`
+* **Access Point BSSID:** `02:00:5E:00:00:02`
 * **Frequency & Channel:** 5200 MHz / Channel 40 (5 GHz Band, 160 MHz channel width)
 * **Observed RSSI:** `-59.0 dBm` (Good / Commercial Quality)
 * **Current Negotiated PHY Link Rates:** `576.4 Mbps RX / 244.9 Mbps TX`

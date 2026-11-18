@@ -440,6 +440,8 @@ async def regenerate_message(
     conv = res.scalar_one_or_none()
     if not conv:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
+    if conv.campus_id and user.role != "administrator":
+        await require_campus_access(db, user, conv.campus_id)  # revoked membership must not reach the provider
 
     target_stmt = select(AIChatMessage).where(
         and_(AIChatMessage.id == message_id, AIChatMessage.conversation_id == conv.id, AIChatMessage.role == "assistant")
