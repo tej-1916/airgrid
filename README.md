@@ -183,6 +183,18 @@ Demo workflow: run migrations, create an admin (`airgrid-admin bootstrap-admin`)
 
 Limits: all coverage shown comes from synthetic demo points, so no field accuracy is claimed; the free AI provider is intermittently slow or unavailable; wall attenuation in the 3D model is not used for prediction; no public deployment exists.
 
+**Can the public repository reproduce the 3D demo? No.** The repository contains the viewer, the API, the tests and the seed, but not the model. To run the 3D demo you need your own copy of two files, `airgrid_mega_campus.glb` (glTF 2.0, exported from Blender, node `extras.airgrid_floor` = ground / first / second / roof / site / atrium) and `campus_geometry.json` (floor calibration and room polygons), in one folder:
+
+```bash
+export AIRGRID_CAMPUS_MODEL_DIR=/path/to/that/folder      # backend environment
+python -m airgrid.demo_seed --plans-dir /path/to/renders   # optional plan images; creates the labelled synthetic demo
+```
+
+The seed registers building code `MEGA-MAIN`; the 3D page looks for that code. Without the files the page shows "3D model unavailable" and explains why. Screenshots of the 3D view are not published for the same reason.
+
+**Later-version verification (18 November 2026):** backend 253 passed / 1 skipped; frontend `npm test` 13 passed; `npm run build` succeeds; browser scripts in `docs/verification/` (3D 16/16, Copilot 9/9 after two provider retries, route sweep 48/48). Screenshots: `docs/verification/screenshots/v1x_*.png`. Final report: `docs/submission/AirGrid_Final_Project_Report.pdf` and `.docx` (the checkpoint report `PROJECT_REPORT.*` is kept unchanged). The report still has placeholders for student name, roll number and department.
+
+
 ## Known limitations
 
 - Items listed under *Implemented, with known limitations* above apply.
