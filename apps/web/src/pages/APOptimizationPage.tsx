@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { useCampus } from '../context/CampusContext';
 import { useAuth } from '../context/AuthContext';
 import { apiRequest } from '../services/api';
+import { ScenarioStudio } from '../components/optimization/ScenarioStudio';
 import { APInventory, PlanEditor, RegisteredAP, SavedPlan, SessionComparison } from '../components/optimization/OptimizationPanels';
 
 interface SurveyEvidence {
@@ -19,7 +21,8 @@ export const APOptimizationPage: React.FC = () => {
   const { campuses } = useCampus();
   const { user } = useAuth();
   const floors = campuses.flatMap(campus => (campus.buildings || []).flatMap(building => (building.floors || []).map(floor => ({ ...floor, label: `${campus.name} / ${building.name} / ${floor.name}` }))));
-  const [floorId, setFloorId] = useState('');
+  const location = useLocation();
+  const [floorId, setFloorId] = useState<string>((location.state as { floorId?: string } | null)?.floorId ?? '');
   const [network, setNetwork] = useState('');
   const [data, setData] = useState<SurveyEvidence | null>(null);
   const [error, setError] = useState('');
@@ -59,6 +62,7 @@ export const APOptimizationPage: React.FC = () => {
       <div className="text-sm font-medium"><label htmlFor="optimization-network">Network</label><select id="optimization-network" className="block w-full rounded-lg border p-3 mt-2 bg-white" value={network} onChange={e => setNetwork(e.target.value)} disabled={!floorId || loading}><option value="">Select a recorded network</option>{data?.available_networks.map(item => <option key={item} value={item}>{item}</option>)}</select></div>
       <p className="text-xs text-neutral-600 sm:col-span-2">Plans are saved per floor with version history; evidence and recommendations are isolated to the selected network.</p>
     </section>
+    {floorId && <ScenarioStudio floorId={floorId} canSave={canPlan} />}
     {error && <p role="alert" className="text-red-800 p-4 bg-red-50 rounded-lg">{error}</p>}
     {loading && <p role="status">Loading recorded survey evidence…</p>}
     {!floorId && <p className="p-6 border rounded-2xl bg-white">Choose a floor with recorded observations. No measurements are simulated.</p>}

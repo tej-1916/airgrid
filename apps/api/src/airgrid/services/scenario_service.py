@@ -34,7 +34,8 @@ async def floor_context(db: AsyncSession, floor_id: uuid.UUID, session_id: Optio
     building = await db.get(Building, floor.building_id)
     geom = cm.load_geometry()
     fgeom = cm.floor_geometry(geom, floor.floor_number) if geom and building and building.building_code == cm.MODEL_BUILDING_CODE else None
-    if not fgeom:
+    b = (fgeom or {}).get("bounds") or {}
+    if not fgeom or not fgeom.get("calibration") or "min" not in b or "max" not in b or "title" not in fgeom:   # incomplete geometry: report, don't guess
         raise _unavailable()
     cal = fgeom["calibration"]
     width, height = cal["resolution_px"]
@@ -203,3 +204,59 @@ def render_report(plan_name: str, version: Optional[int], baseline: dict, result
     L += [f"- {r['id']}: {r['reason']}" for r in result.get("excluded_regions", [])]
     L += ["", f"**{comparison['caveat']}** Verify any proposed change with a physical survey before acting on it.", ""]
     return "\n".join(L)
+
+
+# ---------------------------------------------------------------------------------------------------------------- copilot grounding
+
+async def copilot_grounding(db: AsyncSession, floor_id: uuid.UUID, max_plans: int = 3) -> Tuple[List[str], List[dict]]:
+    """Text + citations for the Copilot. Everything is a MODEL_PREDICTION about hypothetical APs; recorded data stays separate.
+    Caller must already have authorised the floor."""
+    try:
+        ctx = await floor_context(db, floor_id)
+    except HTTPException:
+        return [], []
+    base = evaluate(ctx, None)
+    L = ["", "### Model-predicted coverage [MODEL_PREDICTION]",
+         f"- Model {base['model']['id']} v{base['model']['version']}: NOT physically validated. Values below are predictions from registered AP positions "
+         "and floor geometry, not measurements. Recorded survey points are used only to judge evidence and residual error, never to fit the prediction.",
+         f"- Recorded evidence: {base['labels']['recorded_data']}. Registered APs modelled: {base['summary']['enabled_access_points']}; "
+         f"APs without a floor position (ignored): {ctx['unplaced_access_points']}."]
+    cites: List[dict] = []
+    for z in base["zones"]:
+        if z["band"] in ("weak", "unknown") or z["uncertain"] or z["evidence"]["support"] == "no_recorded_evidence":
+            L.append(f"  - {z['id']} {z['name']}: predicted {z['mean_dbm']} dBm (sigma {z['sigma_db']} dB), band {z['band']}, P(weak)={z['p_weak']}, "
+                     f"serving AP {z['serving_ap']} through {z['walls_to_serving_ap']} wall(s); recorded evidence: {z['evidence']['support']}"
+                     f" ({z['evidence']['recorded_points']} pts, nearest {z['evidence']['nearest_recorded_m']} m)")
+            cites.append({"source_id": f"model:{floor_id}:{z['id']}", "kind": "room", "label": f"{z['id']} {z['name']}", "metric": "Predicted RSSI",
+                          "value": z["mean_dbm"], "unit": "dBm", "provenance": "MODEL_PREDICTION"})
+    gaps = [z["id"] for z in base["zones"] if z["evidence"]["support"] == "no_recorded_evidence"]
+    L.append(f"- Zones with no recorded measurement nearby (more real measurements needed): {', '.join(gaps) if gaps else 'none'}.")
+    L.append("- Model assumptions: " + " | ".join(base["model"]["assumptions"]))
+
+    plans = (await db.execute(select(OptimizationPlan).where(OptimizationPlan.floor_id == floor_id, OptimizationPlan.scenario.is_not(None))
+                              .order_by(OptimizationPlan.updated_at.desc()).limit(max_plans))).scalars().all()
+    for p in plans:
+        spec = p.scenario
+        try:
+            res = evaluate(ctx, spec)
+        except HTTPException:
+            continue
+        cmp = ap.compare_results(base, res)
+        sm = cmp["summary"]
+        cands = "; ".join(f"{c['name']} at ({c['x_m']}, {c['y_m']}) m" + ("" if c.get("enabled", True) else " [disabled]") for c in spec.get("candidates", []))
+        L += ["", f"### Saved hypothetical scenario '{sanitize(p.name)}' v{p.version} [MODEL_PREDICTION]",
+              f"- Hypothetical (not installed) APs: {cands or 'none'}. Parameter overrides: {spec.get('parameters') or 'none (defaults are assumptions)'}.",
+              f"- Weak area {sm['weak_area_m2']['a']} -> {sm['weak_area_m2']['b']} m2; expected weak area incl. uncertainty "
+              f"{sm['expected_weak_area_m2']['a']} -> {sm['expected_weak_area_m2']['b']} m2; zones improved {cmp['zones_improved']}, worsened {cmp['zones_worsened']}; "
+              f"{cmp['changes_within_model_uncertainty']} of {len(cmp['zones'])} changes are smaller than the modelled uncertainty.",
+              f"- Zones still uncertain in the scenario: {res['summary']['uncertain_zones']}."]
+        for z in sorted(cmp["zones"], key=lambda r: -(r["delta_db"] or 0))[:6]:
+            L.append(f"  - {z['id']}: {z['a_dbm']} -> {z['b_dbm']} dBm ({z['delta_db']:+} dB), {z['a_band']} -> {z['b_band']}, within uncertainty: {z['within_model_uncertainty']}")
+        cites.append({"source_id": f"scenario:{p.id}:{p.version}", "kind": "plan", "label": f"Scenario {p.name} v{p.version}", "metric": "Predicted weak area",
+                      "value": sm["weak_area_m2"]["b"], "unit": "m2", "provenance": "MODEL_PREDICTION"})
+    return L, cites
+
+
+def sanitize(text: str) -> str:
+    from airgrid.services.copilot_service import sanitize_text
+    return sanitize_text(text)

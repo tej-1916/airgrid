@@ -86,3 +86,10 @@ async def floor_room_coverage(floor_id: uuid.UUID, session_id: Optional[uuid.UUI
                               user: User = Depends(require_authenticated)):
     floor = await _floor_for_model(db, user, floor_id)
     return await cm.room_coverage(db, floor_id, floor.floor_number, session_id)
+
+
+@router.get("/floors/{floor_id}/room-coverage/compare")
+async def floor_room_coverage_compare(floor_id: uuid.UUID, a: uuid.UUID = Query(...), b: uuid.UUID = Query(...), db: AsyncSession = Depends(get_db),
+                                      user: User = Depends(require_authenticated)):
+    floor = await _floor_for_model(db, user, floor_id)
+    return await cm.compare_room_coverage(db, floor_id, floor.floor_number, a, b)

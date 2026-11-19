@@ -281,11 +281,13 @@ async def gather_floor_context(db: AsyncSession, user: User, floor_id: uuid.UUID
         sessions = (await db.execute(select(SurveySession).where(SurveySession.floor_id == floor_id))).scalars().all()
         lines.append(f"- Survey sessions on this floor: {len(sessions)}. No room geometry is registered for this building.")
         return "\n".join(lines), cites
+    from airgrid.services.scenario_service import copilot_grounding
     cov = await cm.room_coverage(db, floor_id, floor.floor_number)
     sess = cov.get("session")
     if not sess:
         lines.append(f"- {cov.get('reason', 'No survey session exists for this floor.')} Coverage is UNKNOWN; do not estimate it.")
-        return "\n".join(lines), cites
+        mlines, mcites = await copilot_grounding(db, floor_id)
+        return "\n".join(lines + mlines), cites + mcites
     synth = sess["all_synthetic_demo"]
     tag = "SYNTHETIC_DEMO" if synth else "MEASURED"
     lines.append(f"- Survey session '{sanitize_text(sess['name'])}': {sess['points']} points, provenance {sess['provenance_counts']}. "
@@ -298,7 +300,8 @@ async def gather_floor_context(db: AsyncSession, user: User, floor_id: uuid.UUID
         lines.append(f"  - {r['id']} {sanitize_text(r['name'])} ({r['kind']}): {r['rssi_dbm']} dBm, {r['band']}, basis {r['basis']}")
         cites.append({"source_id": f"room:{floor.id}:{r['id']}", "kind": "room", "label": f"{r['id']} {r['name']}", "metric": "RSSI",
                       "value": r["rssi_dbm"], "unit": "dBm", "provenance": tag if r["basis"] == "measured_points_in_room" else "INTERPOLATED_ESTIMATE"})
-    return "\n".join(lines), cites
+    mlines, mcites = await copilot_grounding(db, floor_id)
+    return "\n".join(lines + mlines), cites + mcites
 
 
 async def gather_scoped_context(db: AsyncSession, user: User, campus_id: Optional[uuid.UUID], floor_id: Optional[uuid.UUID] = None) -> Tuple[str, List[dict]]:
@@ -335,6 +338,9 @@ ROLE & CAPABILITIES:
   * [INTERPOLATED_ESTIMATE]: Modeled coverage predictions (e.g., IDW, machine learning heatmaps).
   * [SYNTHETIC_DEMO]: Synthetic test fixture data.
   * [AI_RECOMMENDATION]: Advisory guidance and optimization suggestions.
+  * [MODEL_PREDICTION]: Output of the AP-placement prediction model for registered or HYPOTHETICAL access points. It is a simulation, never a measurement,
+    and is not physically validated. Never describe a model prediction as a measured or achieved improvement; state its uncertainty, name the assumptions
+    that drive it, and say which zones lack recorded evidence and need real measurements.
 
 WI-FI DOMAIN KNOWLEDGE REFERENCE:
 - Signal Strength (RSSI in dBm):

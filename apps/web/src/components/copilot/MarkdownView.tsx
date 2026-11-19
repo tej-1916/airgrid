@@ -36,7 +36,7 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content }) => {
   const renderInlineFormatted = (rawText: string) => {
     // Replace Provenance tags with styled badges
     const tokens = rawText.split(
-      /(\[MEASURED\]|\[INTERPOLATED_ESTIMATE\]|\[SYNTHETIC_DEMO\]|\[AI_RECOMMENDATION\]|\*\*.*?\*\*|\*.*?\*|`.*?`)/g
+      /(\[MEASURED\]|\[INTERPOLATED_ESTIMATE\]|\[SYNTHETIC_DEMO\]|\[AI_RECOMMENDATION\]|\[MODEL_PREDICTION\]|\*\*.*?\*\*|\*.*?\*|`.*?`)/g
     );
 
     return tokens.map((token, i) => {
@@ -57,6 +57,16 @@ export const MarkdownView: React.FC<MarkdownViewProps> = ({ content }) => {
             className="inline-flex items-center px-1.5 py-0.5 mx-1 rounded text-[10px] font-mono font-semibold bg-blue-50 text-blue-800 border border-blue-200"
           >
             INTERPOLATED
+          </span>
+        );
+      }
+      if (token === '[MODEL_PREDICTION]') {
+        return (
+          <span
+            key={i}
+            className="inline-flex items-center px-1.5 py-0.5 mx-1 rounded text-[10px] font-mono font-semibold bg-orange-50 text-orange-800 border border-orange-200"
+          >
+            MODEL PREDICTION
           </span>
         );
       }

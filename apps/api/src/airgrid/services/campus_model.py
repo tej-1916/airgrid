@@ -13,6 +13,7 @@ Coverage here is an interpolation of operator/synthetic survey points with the e
 radio-propagation simulation, and walls in the 3D model are not used for signal prediction.
 """
 import json
+import math
 import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -24,6 +25,7 @@ from airgrid.core.config import settings
 from airgrid.models.all_models import FloorPlanAsset, SurveyMeasurement, SurveySession
 from airgrid.services.survey_service import SurveyService
 
+POINT_CAP = 5000
 MODEL_BUILDING_CODE = "MEGA-MAIN"
 GEOMETRY_FILE = "campus_geometry.json"
 GLB_FILE = "airgrid_mega_campus.glb"
@@ -121,13 +123,14 @@ async def room_coverage(db: AsyncSession, floor_id: uuid.UUID, floor_number: int
     if session_id:
         session = await db.get(SurveySession, session_id)
         if not session or session.floor_id != floor_id:
-            return {"available": True, "session": None, "rooms": [], "reason": "Survey session not found on this floor."}
+            return {"available": True, "session": None, "rooms": [], "points": [], "sessions": [], "reason": "Survey session not found on this floor."}
     else:
         res = await db.execute(select(SurveySession).where(SurveySession.floor_id == floor_id).order_by(SurveySession.started_at.desc()))
         session = next(iter(res.scalars().all()), None)
     rooms = rooms_with_pixels(fgeom)
     if not session:
-        return {"available": True, "session": None, "rooms": [dict(r, rssi_dbm=None, band="unknown", basis="no_survey") for r in rooms],
+        return {"available": True, "session": None, "points": [], "sessions": [],
+                "rooms": [dict(r, rssi_dbm=None, band="unknown", basis="no_survey", points_in_room=0, nearest_point_m=None) for r in rooms],
                 "reason": "No survey session exists for this floor."}
 
     meas = (await db.execute(select(SurveyMeasurement).where(SurveyMeasurement.survey_session_id == session.id))).scalars().all()
@@ -141,9 +144,13 @@ async def room_coverage(db: AsyncSession, floor_id: uuid.UUID, floor_number: int
     for m in meas:
         provenance[m.data_provenance] = provenance.get(m.data_provenance, 0) + 1
 
+    cal = fgeom["calibration"]
+    pts_world = [(*pixel_to_world(m.position_x, m.position_y, cal), m.rssi_dbm, m.data_provenance) for m in meas[:POINT_CAP]]
     out = []
     for r in rooms:
         inside = [m for m in meas if point_in_polygon(m.position_x, m.position_y, r["polygon_px"])]
+        cx, cy = r["centre_world"]
+        nearest = min((math.hypot(px - cx, py - cy) for px, py, _, _ in pts_world), default=None)
         est = SurveyService._predict_idw(r["centre_px"][0], r["centre_px"][1], samples, scale, hull, IDW_POWER, HULL_BUFFER_M) if usable else None
         if inside:
             value, basis = sum(m.rssi_dbm for m in inside) / len(inside), "measured_points_in_room"
@@ -151,7 +158,8 @@ async def room_coverage(db: AsyncSession, floor_id: uuid.UUID, floor_number: int
             value, basis = est, "interpolated_at_room_centre"
         else:
             value, basis = None, "outside_measured_support"
-        out.append(dict(r, rssi_dbm=None if value is None else round(value, 1), band=band(value), basis=basis, points_in_room=len(inside)))
+        out.append(dict(r, rssi_dbm=None if value is None else round(value, 1), band=band(value), basis=basis, points_in_room=len(inside),
+                        nearest_point_m=None if nearest is None else round(nearest, 1)))
     return {
         "available": True,
         "session": {"id": str(session.id), "name": session.session_name, "points": len(meas), "provenance_counts": provenance,
@@ -159,4 +167,25 @@ async def room_coverage(db: AsyncSession, floor_id: uuid.UUID, floor_number: int
         "method": "inverse_distance_weighting (power 2, 4 m support buffer, 18 m reach); not a radio-propagation simulation",
         "thresholds_dbm": {"good_min": GOOD_DBM, "weak_below": WEAK_DBM},
         "rooms": out,
+        # recorded points in world metres (same frame as the 3D model), each with its provenance; never modified or invented
+        "points": [{"x_m": round(x, 2), "y_m": round(y, 2), "rssi_dbm": r, "provenance": prov} for x, y, r, prov in pts_world],
+        "sessions": [{"id": str(x.id), "name": x.session_name, "started_at": x.started_at.isoformat() if x.started_at else None}
+                     for x in (await db.execute(select(SurveySession).where(SurveySession.floor_id == floor_id).order_by(SurveySession.started_at.desc()).limit(50))).scalars()],
     }
+
+
+async def compare_room_coverage(db: AsyncSession, floor_id: uuid.UUID, floor_number: int, a: uuid.UUID, b: uuid.UUID) -> dict:
+    """Per-room difference between two survey sessions (b minus a). Interpolated/measured values only; no model, nothing invented."""
+    ra, rb = await room_coverage(db, floor_id, floor_number, a), await room_coverage(db, floor_id, floor_number, b)
+    if not ra.get("session") or not rb.get("session"):
+        return {"available": False, "reason": "Both survey sessions must exist on this floor.", "rooms": []}
+    by_a = {r["id"]: r for r in ra["rooms"]}
+    rooms = []
+    for r in rb["rooms"]:
+        x = by_a.get(r["id"])
+        both = x is not None and x["rssi_dbm"] is not None and r["rssi_dbm"] is not None
+        rooms.append({"id": r["id"], "name": r["name"], "a_dbm": x and x["rssi_dbm"], "b_dbm": r["rssi_dbm"], "a_band": x and x["band"], "b_band": r["band"],
+                      "delta_db": round(r["rssi_dbm"] - x["rssi_dbm"], 1) if both else None,
+                      "comparable": both})
+    return {"available": True, "a": ra["session"], "b": rb["session"], "rooms": rooms, "points_a": ra["points"], "points_b": rb["points"],
+            "note": "Difference between two recorded surveys per room (estimates where no point lies in the room); not a prediction."}
