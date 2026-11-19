@@ -160,11 +160,11 @@ apps/api/tests/test_webhook_signer.py ..                                 [100%]
 
 ### 6.3 Screenshot Inspection Records
 Captured via headless Chromium (`127.0.0.1:4173`):
-- **Desktop Hero View (`1440 × 950`):** [`docs/design/screenshots/landing-desktop-hero-refined.png`](file:///home/teju/Projects/airgrid/docs/design/screenshots/landing-desktop-hero-refined.png)
+- **Desktop Hero View (`1440 × 950`):** [`docs/design/screenshots/landing-desktop-hero-refined.png`](../../docs/design/screenshots/landing-desktop-hero-refined.png)
   *Confirmed: Lattice sculpture mounted on obsidian aperture, truthful framework badges, and clean editorial balance.*
-- **Desktop Full Page (`1440 × 5400`):** [`docs/design/screenshots/landing-desktop-full-refined.png`](file:///home/teju/Projects/airgrid/docs/design/screenshots/landing-desktop-full-refined.png)
+- **Desktop Full Page (`1440 × 5400`):** [`docs/design/screenshots/landing-desktop-full-refined.png`](../../docs/design/screenshots/landing-desktop-full-refined.png)
   *Confirmed: Dark globe pedestal in Section 02, line art card in Section 04, and video playing in Section 05.*
-- **Mobile Viewport (`390 × 7000`):** [`docs/design/screenshots/landing-mobile-full-refined.png`](file:///home/teju/Projects/airgrid/docs/design/screenshots/landing-mobile-full-refined.png)
+- **Mobile Viewport (`390 × 7000`):** [`docs/design/screenshots/landing-mobile-full-refined.png`](../../docs/design/screenshots/landing-mobile-full-refined.png)
   *Confirmed: Zero horizontal overflow; all four user assets scale cleanly down to mobile screen widths.*
 
 ---

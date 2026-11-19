@@ -37,7 +37,7 @@ Furthermore:
 ### 2.1 Backend Enhancements
 
 1. **Active Wireless Hardware Probe (`TelemetryCollector`):**
-   - Added `get_live_connection_status()` in [`telemetry_collector.py`](file:///home/teju/Projects/airgrid/apps/api/src/airgrid/services/telemetry_collector.py).
+   - Added `get_live_connection_status()` in [`telemetry_collector.py`](../../apps/api/src/airgrid/services/telemetry_collector.py).
    - Dynamically identifies the connected wireless interface (`wlp0s20f3`), uses non-scanning, read-only `iw dev <iface> link` and `nmcli --terse --fields DEVICE,TYPE,STATE,CONNECTION device` without modifying Wi-Fi state or rescanning channels.
    - Extracts genuine live metrics: SSID (`Synthetic_Campus_WiFi`), BSSID, RSSI dBm, frequency, channel, channel width, band, RX/TX negotiated PHY rates, IP address, and default gateway.
 

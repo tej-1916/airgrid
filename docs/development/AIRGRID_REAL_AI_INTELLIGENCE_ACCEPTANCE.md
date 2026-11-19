@@ -92,7 +92,7 @@ flowchart TD
 
 ## 6. AirGrid Analyst Real Telemetry Analysis (Task 6)
 
-* **Source Observation:** Genuine Linux telemetry snapshot [`81c7bcc9-e194-428c-a467-87bcb9487e13`](file:///home/teju/Projects/airgrid/apps/api/src/airgrid/models/all_models.py) (`Synthetic_Campus_WiFi`, `-53.0 dBm`, `5540 MHz / Ch 108`, `RX 400.0 Mbps / TX 360.0 Mbps`).
+* **Source Observation:** Genuine Linux telemetry snapshot [`81c7bcc9-e194-428c-a467-87bcb9487e13`](../../apps/api/src/airgrid/models/all_models.py) (`Synthetic_Campus_WiFi`, `-53.0 dBm`, `5540 MHz / Ch 108`, `RX 400.0 Mbps / TX 360.0 Mbps`).
 * **Privacy Sanitization & Boundary Protection:**
   * Network name (`Synthetic_Campus_WiFi`) was **strictly stripped**.
   * BSSID, MAC addresses, IP addresses, and device identifiers were **strictly excluded**.
@@ -116,7 +116,7 @@ flowchart TD
   * **Zero Fabricated Tests:** Speed test results and gateway latency were not invented.
 * **History Record Persistence & Scope:**
   * Persisted in PostgreSQL table `analysis_records`.
-  * Retrieved and verified via [`GET /api/v1/analyst/history/aea2b713-d162-4d55-b103-36acd84c06a6`](file:///home/teju/Projects/airgrid/apps/api/src/airgrid/api/v1/endpoints/analyst.py#L52-L55).
+  * Retrieved and verified via [`GET /api/v1/analyst/history/aea2b713-d162-4d55-b103-36acd84c06a6`](../../apps/api/src/airgrid/api/v1/endpoints/analyst.py#L52-L55).
   * Access restricted to authenticated operators with campus scope protections.
 
 ---

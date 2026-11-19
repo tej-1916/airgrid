@@ -205,8 +205,8 @@ HTTP/1.1 200 OK
 
 ### 6.4 UI Verification Evidence
 
-1. **Operator Consent Modal:** Captured and verified in [`docs/verification/screenshots/operator_consent_modal_verified.png`](file:///home/teju/Projects/airgrid/docs/verification/screenshots/operator_consent_modal_verified.png). Confirms prominent network name (`Synthetic_Other_AP`), Standalone Audit scope, expected payload volume (~13–16 MB), test duration (~10s), Cloudflare engine, and explicit authorization checkbox.
-2. **Speed Test Completed View:** Captured and verified in [`docs/verification/screenshots/speed_test_completed_verified.png`](file:///home/teju/Projects/airgrid/docs/verification/screenshots/speed_test_completed_verified.png). Confirms real download (51.82 Mbps), upload (15.25 Mbps), latency (4.5 ms), jitter (12.5 ms), and historical table population.
+1. **Operator Consent Modal:** Captured and verified in [`docs/verification/screenshots/operator_consent_modal_verified.png`](../../docs/verification/screenshots/operator_consent_modal_verified.png). Confirms prominent network name (`Synthetic_Other_AP`), Standalone Audit scope, expected payload volume (~13–16 MB), test duration (~10s), Cloudflare engine, and explicit authorization checkbox.
+2. **Speed Test Completed View:** Captured and verified in [`docs/verification/screenshots/speed_test_completed_verified.png`](../../docs/verification/screenshots/speed_test_completed_verified.png). Confirms real download (51.82 Mbps), upload (15.25 Mbps), latency (4.5 ms), jitter (12.5 ms), and historical table population.
 
 ### 6.5 Historical Data Integrity
 

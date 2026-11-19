@@ -15,9 +15,9 @@ When attempting to run telemetry collection via the **Collect Network Data** wor
 > *"Backend collector disabled by host configuration."* (or *"Backend collector disabled. Operator must enable AIRGRID_COLLECTOR_ENABLED on the authorized host."*)
 
 ### 1.2 Root Cause
-1. **Design Safeguard Default:** In [`apps/api/src/airgrid/core/config.py`](file:///home/teju/Projects/airgrid/apps/api/src/airgrid/core/config.py), `AIRGRID_COLLECTOR_ENABLED: bool = False` is deliberately defaulted to `False` so that unattended test suites and distributed production nodes do not probe local interfaces without explicit host-level operator enablement.
+1. **Design Safeguard Default:** In [`apps/api/src/airgrid/core/config.py`](../../apps/api/src/airgrid/core/config.py), `AIRGRID_COLLECTOR_ENABLED: bool = False` is deliberately defaulted to `False` so that unattended test suites and distributed production nodes do not probe local interfaces without explicit host-level operator enablement.
 2. **Missing Local Host Configuration:** The local development environment file `apps/api/.env` did not define `AIRGRID_COLLECTOR_ENABLED`.
-3. **Endpoint Gate Enforcement:** [`apps/api/src/airgrid/api/v1/endpoints/diagnostics.py`](file:///home/teju/Projects/airgrid/apps/api/src/airgrid/api/v1/endpoints/diagnostics.py) and [`apps/api/src/airgrid/services/diagnostic_service.py`](file:///home/teju/Projects/airgrid/apps/api/src/airgrid/services/diagnostic_service.py) enforce `if not settings.AIRGRID_COLLECTOR_ENABLED: raise HTTPException(status_code=409, detail=...)`. Consequently, `GET /api/v1/diagnostics/interfaces` and `POST /api/v1/diagnostics/collect` returned HTTP 409 Conflict.
+3. **Endpoint Gate Enforcement:** [`apps/api/src/airgrid/api/v1/endpoints/diagnostics.py`](../../apps/api/src/airgrid/api/v1/endpoints/diagnostics.py) and [`apps/api/src/airgrid/services/diagnostic_service.py`](../../apps/api/src/airgrid/services/diagnostic_service.py) enforce `if not settings.AIRGRID_COLLECTOR_ENABLED: raise HTTPException(status_code=409, detail=...)`. Consequently, `GET /api/v1/diagnostics/interfaces` and `POST /api/v1/diagnostics/collect` returned HTTP 409 Conflict.
 
 ---
 
@@ -40,7 +40,7 @@ Per safety guidelines, the secure code default (`AIRGRID_COLLECTOR_ENABLED: bool
 
 ## 3. UI Collection Workflow & Scope Safeguards
 
-In [`apps/web/src/components/diagnostics/OperatorConsentModal.tsx`](file:///home/teju/Projects/airgrid/apps/web/src/components/diagnostics/OperatorConsentModal.tsx):
+In [`apps/web/src/components/diagnostics/OperatorConsentModal.tsx`](../../apps/web/src/components/diagnostics/OperatorConsentModal.tsx):
 - **Measuring Host Identification:** Explicitly displays the target measuring device (`test-host`) and detected Wi-Fi interface (`wlp0s20f3`).
 - **Active SSID Transparency:** Displays the active connected network (`Synthetic_Campus_WiFi`).
 - **Target Facility Association Control:** Added facility selection dropdown allowing the operator to select:
@@ -58,7 +58,7 @@ Following explicit operator authorization, one genuine read-only measurement was
 - **Record ID:** `81c7bcc9-e194-428c-a467-87bcb9487e13`
 - **SSID:** `Synthetic_Campus_WiFi`
 - **Interface:** `wlp0s20f3`
-- **BSSID:** `80:BC:37:8D:63:EC`
+- **BSSID:** `02:00:5E:00:00:01`
 - **Signal Strength:** `-53.0 dBm` (Strong)
 - **Frequency / Band:** `5540 MHz` (Channel 108, 5 GHz band, 40 MHz channel width)
 - **Downlink PHY Bitrate:** `400.0 Mbps` (Negotiated dynamic link rate)
@@ -92,6 +92,6 @@ Following explicit operator authorization, one genuine read-only measurement was
 ---
 
 ## 6. Verification Artifacts & Screenshots
-- [`live_diagnostics_jain_collected_desktop.png`](file:///home/teju/Projects/airgrid/docs/verification/screenshots/live_diagnostics_jain_collected_desktop.png): Live browser view of `/diagnostics` with active `Synthetic_Campus_WiFi` telemetry.
-- [`live_diagnostics_jain_collected_mobile.png`](file:///home/teju/Projects/airgrid/docs/verification/screenshots/live_diagnostics_jain_collected_mobile.png): Mobile 390px viewport view.
-- [`operator_consent_modal_verified.png`](file:///home/teju/Projects/airgrid/docs/verification/screenshots/operator_consent_modal_verified.png): Operator consent modal with interface and campus scope controls.
+- [`live_diagnostics_collected_desktop.png`](../../docs/verification/screenshots/live_diagnostics_collected_desktop.png): Live browser view of `/diagnostics` with active `Synthetic_Campus_WiFi` telemetry.
+- [`live_diagnostics_collected_mobile.png`](../../docs/verification/screenshots/live_diagnostics_collected_mobile.png): Mobile 390px viewport view.
+- [`operator_consent_modal_verified.png`](../../docs/verification/screenshots/operator_consent_modal_verified.png): Operator consent modal with interface and campus scope controls.
