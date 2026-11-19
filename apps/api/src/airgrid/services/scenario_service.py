@@ -3,6 +3,7 @@
 Authorization is the caller's job (endpoints call require_floor_access before anything here). Nothing in this module writes to
 the AP inventory, configures equipment or modifies recorded measurements. See ap_prediction for the model and its limits.
 """
+import re
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -224,8 +225,8 @@ async def copilot_grounding(db: AsyncSession, floor_id: uuid.UUID, max_plans: in
     cites: List[dict] = []
     for z in base["zones"]:
         if z["band"] in ("weak", "unknown") or z["uncertain"] or z["evidence"]["support"] == "no_recorded_evidence":
-            L.append(f"  - {z['id']} {z['name']}: predicted {z['mean_dbm']} dBm (sigma {z['sigma_db']} dB), band {z['band']}, P(weak)={z['p_weak']}, "
-                     f"serving AP {z['serving_ap_name'] or z['serving_ap']} through {z['walls_to_serving_ap']} wall(s); recorded evidence: {z['evidence']['support']}"
+            L.append(f"  - {z['id']} {sanitize(z['name'])}: predicted {z['mean_dbm']} dBm (sigma {z['sigma_db']} dB), band {z['band']}, P(weak)={z['p_weak']}, "
+                     f"serving AP {sanitize(z['serving_ap_name'] or z['serving_ap'] or 'none')} through {z['walls_to_serving_ap']} wall(s); recorded evidence: {z['evidence']['support']}"
                      f" ({z['evidence']['recorded_points']} pts, nearest {z['evidence']['nearest_recorded_m']} m)")
             cites.append({"source_id": f"model:{floor_id}:{z['id']}", "kind": "room", "label": f"{z['id']} {z['name']}", "metric": "Predicted RSSI",
                           "value": z["mean_dbm"], "unit": "dBm", "provenance": "MODEL_PREDICTION"})
@@ -243,7 +244,7 @@ async def copilot_grounding(db: AsyncSession, floor_id: uuid.UUID, max_plans: in
             continue
         cmp = ap.compare_results(base, res)
         sm = cmp["summary"]
-        cands = "; ".join(f"{c['name']} at ({c['x_m']}, {c['y_m']}) m" + ("" if c.get("enabled", True) else " [disabled]") for c in spec.get("candidates", []))
+        cands = "; ".join(f"{sanitize(c['name'])} at ({c['x_m']}, {c['y_m']}) m" + ("" if c.get("enabled", True) else " [disabled]") for c in spec.get("candidates", []))
         L += ["", f"### Saved hypothetical scenario '{sanitize(p.name)}' v{p.version} [MODEL_PREDICTION]",
               f"- Hypothetical (not installed) APs: {cands or 'none'}. Parameter overrides: {spec.get('parameters') or 'none (defaults are assumptions)'}.",
               f"- Weak area {sm['weak_area_m2']['a']} -> {sm['weak_area_m2']['b']} m2; expected weak area incl. uncertainty "
@@ -252,11 +253,13 @@ async def copilot_grounding(db: AsyncSession, floor_id: uuid.UUID, max_plans: in
               f"- Zones still uncertain in the scenario: {res['summary']['uncertain_zones']}."]
         for z in sorted(cmp["zones"], key=lambda r: -(r["delta_db"] or 0))[:6]:
             L.append(f"  - {z['id']}: {z['a_dbm']} -> {z['b_dbm']} dBm ({z['delta_db']:+} dB), {z['a_band']} -> {z['b_band']}, within uncertainty: {z['within_model_uncertainty']}")
-        cites.append({"source_id": f"scenario:{p.id}:{p.version}", "kind": "plan", "label": f"Scenario {p.name} v{p.version}", "metric": "Predicted weak area",
+        cites.append({"source_id": f"scenario:{p.id}:{p.version}", "kind": "plan", "label": f"Scenario {sanitize(p.name)} v{p.version}", "metric": "Predicted weak area",
                       "value": sm["weak_area_m2"]["b"], "unit": "m2", "provenance": "MODEL_PREDICTION"})
     return L, cites
 
 
 def sanitize(text: str) -> str:
+    """User-typed labels go into the LLM context: mask MAC/IP/credentials, flatten whitespace, and drop [..] / <..> so a name
+    cannot fake a provenance tag (e.g. [MEASURED]) or open a new prompt section."""
     from airgrid.services.copilot_service import sanitize_text
-    return sanitize_text(text)
+    return " ".join(re.sub(r"[\[\]<>]", "", sanitize_text(str(text))).split())[:80]
