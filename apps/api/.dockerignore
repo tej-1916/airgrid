@@ -1,0 +1,10 @@
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.env
+.env.*
+data
+*.glb
+*.blend
+campus_geometry.json

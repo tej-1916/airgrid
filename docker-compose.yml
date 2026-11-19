@@ -53,9 +53,84 @@ services:
     networks:
       - airgrid-net
 
+  # ---------------------------------------------------------------------------------------------------------------
+  # "lab" profile: isolated, throwaway verification environment. Never started by a plain `docker compose up`.
+  #   docker compose --profile lab up --build --abort-on-container-exit --exit-code-from lab-tests
+  # No published ports, no outbound route (internal network), no volumes, non-root, read-only root, all capabilities
+  # dropped, never privileged. It cannot reach the real database, real routers or the internet. See
+  # docs/development/NETWORK_OPTIMIZATION_STUDIO.md for what a container simulation can and cannot validate.
+  # ---------------------------------------------------------------------------------------------------------------
+  lab-db:
+    profiles: ["lab"]
+    image: postgres:16-alpine
+    container_name: airgrid-lab-db
+    user: "70:70"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 200
+    mem_limit: 512m
+    environment:
+      POSTGRES_USER: lab
+      POSTGRES_PASSWORD: ${AIRGRID_LAB_DB_PASSWORD:-lab_throwaway_not_a_secret}
+      POSTGRES_DB: airgrid_lab_test_db
+    tmpfs:
+      - /var/lib/postgresql/data:uid=70,gid=70,mode=0700,size=256m
+      - /var/run/postgresql:uid=70,gid=70,mode=0775
+      - /tmp:uid=70,gid=70,mode=1777
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lab -d airgrid_lab_test_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks:
+      - airgrid-lab-net
+
+  lab-tests:
+    profiles: ["lab"]
+    build:
+      context: ./apps/api
+      dockerfile: ../../infrastructure/docker/Dockerfile.lab
+    image: airgrid-lab-tests:local
+    container_name: airgrid-lab-tests
+    restart: "no"
+    user: "10001:10001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 400
+    mem_limit: 1g
+    depends_on:
+      lab-db:
+        condition: service_healthy
+    environment:
+      AIRGRID_LAB: "1"
+      AIRGRID_ENV: testing
+      DATABASE_URL: postgresql+asyncpg://lab:${AIRGRID_LAB_DB_PASSWORD:-lab_throwaway_not_a_secret}@lab-db:5432/airgrid_lab_test_db
+      DATABASE_URL_SYNC: postgresql://lab:${AIRGRID_LAB_DB_PASSWORD:-lab_throwaway_not_a_secret}@lab-db:5432/airgrid_lab_test_db
+      AIRGRID_TEST_DATABASE_URL: postgresql+asyncpg://lab:${AIRGRID_LAB_DB_PASSWORD:-lab_throwaway_not_a_secret}@lab-db:5432/airgrid_lab_test_db
+      AIRGRID_TEST_DATABASE_URL_SYNC: postgresql://lab:${AIRGRID_LAB_DB_PASSWORD:-lab_throwaway_not_a_secret}@lab-db:5432/airgrid_lab_test_db
+    tmpfs:
+      - /tmp:uid=10001,gid=10001,mode=1777
+      - /app/data:uid=10001,gid=10001
+    command:
+      - sh
+      - -c
+      - >
+        alembic upgrade head &&
+        python -m pytest -p no:cacheprovider -o addopts= -q
+        --deselect tests/test_database_isolation.py::test_isolated_db_transaction_does_not_leak_to_dev_db
+        tests/test_lab_isolation.py tests/test_ap_prediction.py tests/test_scenarios_api.py
+        tests/test_copilot_scenarios.py tests/test_campus_model_studio.py tests/test_database_isolation.py
+    networks:
+      - airgrid-lab-net
+
 volumes:
   postgres_data:
 
 networks:
   airgrid-net:
     driver: bridge
+  airgrid-lab-net:
+    driver: bridge
+    internal: true   # no gateway: containers on it cannot reach the host network, LAN routers or the internet
