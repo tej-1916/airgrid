@@ -141,3 +141,20 @@ def test_zones_name_their_serving_ap_for_people_not_just_ids():
     assert zone(res, "SYN-N-01")["serving_ap"] == "syn-ap-1" and zone(res, "SYN-N-01")["serving_ap_name"] == "SYNTHETIC-AP-1"
     assert zone(res, "SYN-S-02")["serving_ap_name"] == "Candidate South"
     assert {z["serving_ap_name"] for z in run(disabled=["syn-ap-1", "syn-ap-2"])["zones"]} == {None}
+
+
+def test_parameter_sensitivity_dominates_the_predicted_effect_and_is_the_documented_figure():
+    """Pins the numbers quoted in docs/development/OPTIMIZATION_MODEL_NOTES.md (synthetic fixture, 16 plausible parameter sets).
+    The sign of the effect is stable; its size and the baseline are not - so a predicted gain must never be quoted as a measured one."""
+    import itertools
+    base_weak, deltas = [], []
+    for n, w in itertools.product((2.5, 3.0, 3.5, 4.0), (3.0, 6.0, 10.0, 15.0)):
+        P = {"path_loss_exponent": n, "wall_loss_db": w}
+        b, s = run(overrides=P), run([CAND_SOUTH], overrides=P)
+        base_weak.append(b["summary"]["weak_area_m2"])
+        deltas.append(round(s["summary"]["weak_area_m2"] - b["summary"]["weak_area_m2"], 1))
+    assert all(d <= 0 for d in deltas)                                   # adding an AP never increases predicted weak area here
+    assert (min(base_weak), max(base_weak)) == (0.0, 1088.0)             # baseline weak area of the CURRENT layout: 0 to 1088 of 1536 m2
+    assert (min(deltas), max(deltas)) == (-664.0, 0.0)                   # predicted benefit of one added AP: 0 to 664 m2
+    d0 = run([CAND_SOUTH])["summary"]["weak_area_m2"] - run()["summary"]["weak_area_m2"]
+    assert d0 == -560.0 and run()["model_check"]["mae_db"] == 5.5       # defaults: 560 -> 0 m2; residual vs the SYNTHETIC points (not evidence)

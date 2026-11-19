@@ -28,8 +28,8 @@ export const LandingPage: React.FC = () => {
     {
       step: '01',
       title: 'Adaptive RF Analysis.',
-      desc: 'Real-time multi-band signal interpolation across 2.4, 5, and 6 GHz spectrum.',
-      badge: '5.0 GHz • Multi-Band Spectrum Schema',
+      desc: 'Coverage heatmaps interpolated from your own recorded survey points, with measured, interpolated and synthetic data labelled.',
+      badge: 'Recorded survey points • IDW interpolation',
     },
     {
       step: '02',
@@ -370,7 +370,7 @@ export const LandingPage: React.FC = () => {
                 <span className="text-editorial-copper font-semibold">active client measurements,</span>{' '}
                 empirical RF heatmaps, and{' '}
                 <span className="text-editorial-muted font-normal">
-                  physics-grounded predictive placement optimization.
+                  assumption-based layout comparison for planning.
                 </span>
               </h2>
 
@@ -544,7 +544,7 @@ export const LandingPage: React.FC = () => {
                 <div className="text-[11px] font-mono text-editorial-muted">04 / MACHINE LEARNING</div>
                 <h3 className="text-lg font-semibold text-editorial-dark">ML Coverage Prediction</h3>
                 <p className="text-xs text-editorial-muted leading-relaxed">
-                  Physics-grounded ITU-R indoor path-loss models and scikit-learn regressors evaluating spatial signal attenuation across concrete partitions.
+                  Scikit-learn regressors cross-validated on your recorded survey points, plus a simple log-distance path-loss model with a per-wall term (generic, uncalibrated defaults). Predictions are model output, not field-validated measurements.
                 </p>
               </div>
             </div>
@@ -558,7 +558,7 @@ export const LandingPage: React.FC = () => {
                 <div className="text-[11px] font-mono text-editorial-muted">05 / SIMULATION</div>
                 <h3 className="text-lg font-semibold text-editorial-dark">AP Placement Optimization</h3>
                 <p className="text-xs text-editorial-muted leading-relaxed">
-                  Algorithmic coordinate solver simulating access point locations and transmit powers to maximize coverage within constrained hardware budgets.
+                  Place virtual access points on a floor and compare the predicted coverage of two layouts, with the assumptions and uncertainty shown. A planning aid: it does not solve placement automatically and is not a measured result.
                 </p>
               </div>
             </div>
@@ -839,7 +839,7 @@ export const LandingPage: React.FC = () => {
               </div>
               <h3 className="text-base font-semibold text-editorial-dark">Optimize</h3>
               <p className="text-xs text-editorial-muted leading-relaxed">
-                Algorithmic simulations calculate recommended AP coordinate shifts, channel reassignments, and transmit power levels.
+                Compare hypothetical AP layouts by model-predicted coverage. Channel plans and automatic power tuning are not modelled; confirm any change with a survey.
               </p>
             </div>
           </div>
