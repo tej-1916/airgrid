@@ -278,6 +278,9 @@ def run_scenario(floor_geom: dict, existing: Sequence[dict], candidates: Sequenc
     params = resolve_parameters(overrides)
     aps = normalise_aps(existing, candidates, disabled_existing)
     result = predict_layout(layout, aps, params, recorded)
+    names = {a["id"]: a["name"] for a in aps}
+    for z in result["zones"]:
+        z["serving_ap_name"] = names.get(z["serving_ap"])                 # people read names, not ids
     return {
         "model": {"id": MODEL_ID, "version": MODEL_VERSION, "validated": False, "assumptions": ASSUMPTIONS,
                   "equation": "RSSI = P_tx + G - PL_1m - 10 n log10(d3) - walls * L_wall (strongest AP wins)"},

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { ScenarioStudio } from './ScenarioStudio';
 import { apiRequest } from '../../services/api';
 
@@ -21,7 +22,7 @@ const CTX = {
     parameters: { wall_loss_db: { default: 6, min: 0, max: 20, unit: 'dB', description: 'Loss per wall' } } },
 };
 const zone = (id: string, band: string, dbm: number) => ({ id, name: id, kind: 'room', area_m2: 50, polygon_world: [], mean_dbm: dbm, band, basis: 'model_prediction', sigma_db: 6, p_weak: 0.1, p_good: 0.5,
-  confidence: 0.7, uncertain: false, serving_ap: 'ap1', walls_to_serving_ap: 1, evidence: { support: 'recorded_in_zone', recorded_points: 1, recorded_mean_dbm: -60, nearest_recorded_m: 2 } });
+  confidence: 0.7, uncertain: false, serving_ap: 'ap1', serving_ap_name: 'SYN-AP-1', walls_to_serving_ap: 1, evidence: { support: 'recorded_in_zone', recorded_points: 1, recorded_mean_dbm: -60, nearest_recorded_m: 2 } });
 const result = (east: string, hypo: number) => ({ model: CTX.model, labels: { layer: 'model_predicted', physically_validated: false, recorded_data: 'SYNTHETIC', hypothetical_access_points: hypo }, inputs_hash: `h${hypo}`,
   zones: [zone('Z-1', 'good', -55), zone('Z-2', east, east === 'weak' ? -80 : -62)], summary: {}, parameters: {}, model_check: { bias_db: -1, mae_db: 5, rmse_db: 6, points: 2 } });
 const cmp = (improved: number) => ({ summary: { weak_area_m2: { a: 50, b: improved ? 0 : 50, delta: improved ? -50 : 0 } }, zones_improved: improved, zones_worsened: 0, changes_within_model_uncertainty: 0, caveat: 'Model-vs-model differences, not measured improvements.',
@@ -56,7 +57,7 @@ function sizePlan() {
   svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 260, height: 160, right: 260, bottom: 160, x: 0, y: 0, toJSON() {} }) as DOMRect;
   return svg;
 }
-async function ready() { render(<ScenarioStudio floorId="f1" canSave />); await screen.findByRole('note'); return sizePlan(); }
+async function ready() { render(<MemoryRouter><ScenarioStudio floorId="f1" canSave /></MemoryRouter>); await screen.findByRole('note'); return sizePlan(); }
 
 describe('ScenarioStudio', () => {
   beforeEach(() => { vi.clearAllMocks(); calls = []; savedPlans = []; installApi(); });
@@ -138,6 +139,7 @@ describe('ScenarioStudio', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Save as version 2' }));
     await waitFor(() => expect(calls.some(c => c.method === 'PATCH')).toBe(true));
     expect(calls.find(c => c.method === 'PATCH')!.body.expected_version).toBe(1);
+    expect(screen.getByRole('link', { name: /Ask the Copilot to explain this scenario/ })).toHaveAttribute('href', '/ai-copilot');
   });
 
   it('reopens a saved scenario into the editor and compares it side by side', async () => {
@@ -157,7 +159,7 @@ describe('ScenarioStudio', () => {
   });
 
   it('does not offer saving to viewers but still lets them explore', async () => {
-    render(<ScenarioStudio floorId="f1" canSave={false} />);
+    render(<MemoryRouter><ScenarioStudio floorId="f1" canSave={false} /></MemoryRouter>);
     await screen.findByRole('note');
     expect(screen.queryByRole('button', { name: /Save scenario/ })).toBeNull();
     expect(screen.getByText(/Saving needs a network engineer or administrator/)).toBeInTheDocument();
@@ -167,7 +169,7 @@ describe('ScenarioStudio', () => {
 
   it('explains when a floor has no registered geometry instead of inventing one', async () => {
     installApi({ '/scenario/context': () => { throw new Error('No floor geometry is registered for this floor, so AP layouts cannot be modelled.'); } });
-    render(<ScenarioStudio floorId="f9" canSave />);
+    render(<MemoryRouter><ScenarioStudio floorId="f9" canSave /></MemoryRouter>);
     expect(await screen.findByRole('alert')).toHaveTextContent(/No floor geometry is registered/);
     expect(predicts()).toHaveLength(0);
   });

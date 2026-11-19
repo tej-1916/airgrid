@@ -225,7 +225,7 @@ async def copilot_grounding(db: AsyncSession, floor_id: uuid.UUID, max_plans: in
     for z in base["zones"]:
         if z["band"] in ("weak", "unknown") or z["uncertain"] or z["evidence"]["support"] == "no_recorded_evidence":
             L.append(f"  - {z['id']} {z['name']}: predicted {z['mean_dbm']} dBm (sigma {z['sigma_db']} dB), band {z['band']}, P(weak)={z['p_weak']}, "
-                     f"serving AP {z['serving_ap']} through {z['walls_to_serving_ap']} wall(s); recorded evidence: {z['evidence']['support']}"
+                     f"serving AP {z['serving_ap_name'] or z['serving_ap']} through {z['walls_to_serving_ap']} wall(s); recorded evidence: {z['evidence']['support']}"
                      f" ({z['evidence']['recorded_points']} pts, nearest {z['evidence']['nearest_recorded_m']} m)")
             cites.append({"source_id": f"model:{floor_id}:{z['id']}", "kind": "room", "label": f"{z['id']} {z['name']}", "metric": "Predicted RSSI",
                           "value": z["mean_dbm"], "unit": "dBm", "provenance": "MODEL_PREDICTION"})

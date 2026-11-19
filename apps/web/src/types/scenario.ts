@@ -35,7 +35,7 @@ export interface ScenarioContext {
 export interface ZoneResult {
   id: string; name: string; kind: string; area_m2: number; polygon_world: [number, number][];
   mean_dbm: number | null; band: Band; basis: string; sigma_db: number | null; p_weak: number; p_good: number; confidence: number; uncertain: boolean;
-  serving_ap: string | null; walls_to_serving_ap: number | null;
+  serving_ap: string | null; serving_ap_name: string | null; walls_to_serving_ap: number | null;
   evidence: { support: string; recorded_points: number; recorded_mean_dbm: number | null; nearest_recorded_m: number | null };
 }
 

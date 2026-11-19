@@ -134,3 +134,10 @@ def test_runtime_is_interactive_on_the_synthetic_floor():
     t = time.perf_counter()
     run([CAND_SOUTH, {**CAND_SOUTH, "id": "c2", "x_m": -16.0}])
     assert time.perf_counter() - t < 1.5
+
+
+def test_zones_name_their_serving_ap_for_people_not_just_ids():
+    res = run([CAND_SOUTH])
+    assert zone(res, "SYN-N-01")["serving_ap"] == "syn-ap-1" and zone(res, "SYN-N-01")["serving_ap_name"] == "SYNTHETIC-AP-1"
+    assert zone(res, "SYN-S-02")["serving_ap_name"] == "Candidate South"
+    assert {z["serving_ap_name"] for z in run(disabled=["syn-ap-1", "syn-ap-2"])["zones"]} == {None}
