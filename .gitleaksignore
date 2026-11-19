@@ -1,0 +1,3 @@
+# False positive: a deliberately fake credential used as hostile input in a regression test (it is not a real key; it exists to prove the sanitizer masks it).
+# The literal is split in later commits; this entry covers the already-pushed commit, because history is not rewritten.
+018ddf619bef5a4103482c943f9cc70f6c0887f9:apps/api/tests/test_scenario_prompt_injection.py:generic-api-key:25

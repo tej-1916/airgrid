@@ -143,7 +143,8 @@ def _iso(v):
 def plan_row(p: OptimizationPlan) -> dict:
     return {'id': str(p.id), 'floor_id': str(p.floor_id), 'building_id': str(p.building_id) if p.building_id else None,
             'campus_id': str(p.campus_id) if p.campus_id else None, 'network_label': p.network_label, 'name': p.name,
-            'notes': p.notes, 'status': p.status, 'markers': p.markers, 'evidence_refs': p.evidence_refs, 'version': p.version,
+            'notes': p.notes, 'status': p.status, 'markers': p.markers, 'evidence_refs': p.evidence_refs, 'scenario': p.scenario,
+            'version': p.version,
             'author': p.author.email if p.author else None, 'author_id': str(p.author_id) if p.author_id else None,
             'created_at': _iso(p.created_at), 'updated_at': _iso(p.updated_at), 'speculative': True}
 
@@ -174,6 +175,21 @@ async def _check_evidence(db, floor_id, refs):
     if missing := [str(r) for r in refs if r not in found]:
         raise HTTPException(status_code=422, detail=f'Evidence must be survey observations on this floor; unknown: {missing[:5]}')
     return [str(r) for r in refs]
+
+
+async def _validate_scenario(db, floor_id, scenario):
+    """A saved scenario must fit the floor and use only known, in-range model parameters; hypothetical APs are never registered."""
+    if scenario is None:
+        return None
+    from airgrid.services import ap_prediction, scenario_service
+    ctx = await scenario_service.floor_context(db, floor_id)
+    data = scenario.model_dump(mode='json')
+    scenario_service.check_candidates_in_bounds(ctx['fgeom'], data['candidates'])
+    try:
+        ap_prediction.resolve_parameters(data['parameters'])
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return data
 
 
 async def _plan_or_404(db, plan_id):
@@ -211,8 +227,10 @@ async def create_plan(db, req, user):
         id=uuid.uuid4(), floor_id=floor.id, building_id=floor.building_id, campus_id=building.campus_id if building else None,
         network_label=req.network_label, name=req.name.strip(), notes=req.notes, status=req.status,
         markers=[m.model_dump() for m in req.markers], evidence_refs=await _check_evidence(db, floor.id, req.evidence_refs),
-        version=1, author_id=user.id, updated_by_id=user.id)
+        scenario=await _validate_scenario(db, floor.id, req.scenario), version=1, author_id=user.id, updated_by_id=user.id)
     db.add(plan)
+    from airgrid.services.scenario_service import record_version
+    record_version(db, plan, user)
     _audit(db, user, 'optimization_plan.created', 'optimization_plans', plan.id, name=plan.name, markers=len(plan.markers))
     await db.commit()
     return await get_plan(db, plan.id)
@@ -227,10 +245,14 @@ async def update_plan(db, plan_id, req, user):
         changes['markers'] = [m.model_dump() for m in req.markers]
     if 'evidence_refs' in changes:
         changes['evidence_refs'] = await _check_evidence(db, plan.floor_id, req.evidence_refs)
+    if 'scenario' in changes:
+        changes['scenario'] = await _validate_scenario(db, plan.floor_id, req.scenario)
     for key, value in changes.items():
         setattr(plan, key, value)
     plan.version += 1
     plan.updated_by_id = user.id
+    from airgrid.services.scenario_service import record_version
+    record_version(db, plan, user)
     _audit(db, user, 'optimization_plan.updated', 'optimization_plans', plan.id, fields=sorted(changes), version=plan.version)
     await db.commit()
     return await get_plan(db, plan.id)

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { Box, Layers, Map as MapIcon, RotateCcw, AlertCircle, Sparkles } from 'lucide-react';
+import { Box, Layers, Map as MapIcon, RotateCcw, AlertCircle, Sparkles, SlidersHorizontal } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { apiRequest } from '../services/api';
 import { campusService } from '../services/campusService';
@@ -11,12 +11,18 @@ import { campusService } from '../services/campusService';
 
 interface Level { key: string; code: string; title: string; floor_number: number; airgrid_floor_id: string | null; finished_floor_z_m: number; room_count: number }
 interface ModelInfo { available: boolean; reason?: string; glb_url?: string; glb_bytes?: number; levels?: Level[] }
-interface RoomCov { id: string; name: string; kind: string; wing?: string; area_m2?: number; polygon_world: number[][]; rssi_dbm: number | null; band: 'good' | 'fair' | 'weak' | 'unknown'; basis: string; points_in_room?: number }
-interface Coverage { available: boolean; reason?: string; session: null | { name: string; points: number; all_synthetic_demo: boolean; provenance_counts: Record<string, number> }; method?: string; rooms: RoomCov[] }
+interface RoomCov { id: string; name: string; kind: string; wing?: string; area_m2?: number; polygon_world: number[][]; rssi_dbm: number | null; band: 'good' | 'fair' | 'weak' | 'unknown'; basis: string; points_in_room?: number; nearest_point_m?: number | null }
+interface Pt { x_m: number; y_m: number; rssi_dbm: number; provenance: string }
+interface Coverage { available: boolean; reason?: string; session: null | { id?: string; name: string; points: number; all_synthetic_demo: boolean; provenance_counts: Record<string, number> }; method?: string; rooms: RoomCov[]; points?: Pt[]; sessions?: { id: string; name: string; started_at: string | null }[] }
+interface RoomDiff { id: string; delta_db: number | null; a_band: string | null; b_band: string | null; comparable: boolean }
+interface Diff { available: boolean; reason?: string; note?: string; rooms: RoomDiff[] }
 
 const BAND_COLOUR: Record<string, string> = { good: '#4C8B5A', fair: '#D9A441', weak: '#C0504D', unknown: '#C9CBCF' };
 const BAND_LABEL: Record<string, string> = { good: 'Good (≥ −67 dBm)', fair: 'Fair (−67 to −75 dBm)', weak: 'Weak (< −75 dBm)', unknown: 'Unknown (no measured support)' };
 const FLOORS = ['ground', 'first', 'second', 'roof'];
+const bandOfDbm = (v: number) => (v >= -67 ? 'good' : v < -75 ? 'weak' : 'fair');
+const DIFF_COLOUR = { up: '#2E7D5B', down: '#C0504D', flat: '#C9CBCF' };
+const evidenceOf = (r: RoomCov) => (r.basis === 'measured_points_in_room' ? 'measured in room' : r.basis === 'interpolated_at_room_centre' ? 'interpolated (no point inside the room)' : 'unknown (outside measured support)');
 
 function inPoly(x: number, y: number, poly: number[][]) {
   let c = false;
@@ -39,6 +45,15 @@ export default function CampusModelPage() {
   const [coverage, setCoverage] = useState<Coverage | null>(null);
   const [room, setRoom] = useState<RoomCov | null>(null);
   const [sceneReady, setSceneReady] = useState(false);
+  // session choices are keyed to the level they were made on, so a stale id from another floor is never sent
+  const [pick1, setPick1] = useState({ key: '', session: '', compare: '' });
+  const sessionId = pick1.key === (selected ?? '') ? pick1.session : '';
+  const compareId = pick1.key === (selected ?? '') ? pick1.compare : '';
+  const setSessionId = (id: string) => setPick1({ key: selected ?? '', session: id, compare: '' });
+  const setCompareId = (id: string) => setPick1({ key: selected ?? '', session: sessionId, compare: id });
+  const [diff, setDiff] = useState<Diff | null>(null);
+  const [layer, setLayer] = useState<'band' | 'difference'>('band');
+  const [showPoints, setShowPoints] = useState(true);
 
   const level = useMemo(() => info?.levels?.find((l) => l.key === selected) ?? null, [info, selected]);
 
@@ -126,11 +141,28 @@ export default function CampusModelPage() {
     setRoom(null); setCoverage(null);
     if (!level?.airgrid_floor_id) return;
     let dead = false;
-    apiRequest<Coverage>(`/api/v1/campus-model/floors/${level.airgrid_floor_id}/room-coverage`)
+    apiRequest<Coverage>(`/api/v1/campus-model/floors/${level.airgrid_floor_id}/room-coverage${sessionId ? `?session_id=${sessionId}` : ''}`)
       .then((c) => !dead && setCoverage(c))
       .catch((e) => !dead && setError(e instanceof Error ? e.message : 'Coverage request failed.'));
     return () => { dead = true; };
-  }, [level]);
+  }, [level, sessionId]);
+
+  // 4b) survey comparison (recorded estimates only): selected session (a) vs another session (b)
+  useEffect(() => {
+    setDiff(null); setLayer('band');
+    const a = coverage?.session?.id;
+    if (!level?.airgrid_floor_id || !a || !compareId || compareId === a) return;
+    let dead = false;
+    apiRequest<Diff>(`/api/v1/campus-model/floors/${level.airgrid_floor_id}/room-coverage/compare?a=${a}&b=${compareId}`)
+      .then((d) => !dead && setDiff(d)).catch((e) => !dead && setError(e instanceof Error ? e.message : 'Comparison failed.'));
+    return () => { dead = true; };
+  }, [coverage, compareId, level]);
+
+  const diffById = useMemo(() => Object.fromEntries((diff?.rooms ?? []).map((d) => [d.id, d])), [diff]);
+  const roomColour = useCallback((r: RoomCov) => {
+    if (layer === 'difference') { const d = diffById[r.id]; return !d?.comparable || d.delta_db === null ? DIFF_COLOUR.flat : d.delta_db >= 3 ? DIFF_COLOUR.up : d.delta_db <= -3 ? DIFF_COLOUR.down : DIFF_COLOUR.flat; }
+    return BAND_COLOUR[r.band];
+  }, [layer, diffById]);
 
   // 5) coverage overlay: one flat coloured polygon per room on the selected floor (blender (x, y) -> glTF (x, z = -y))
   useEffect(() => {
@@ -138,13 +170,23 @@ export default function CampusModelPage() {
     const group = new THREE.Group();
     coverage.rooms.forEach((r) => {
       const shape = new THREE.Shape(r.polygon_world.map(([x, y]) => new THREE.Vector2(x, y)));
-      const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: BAND_COLOUR[r.band], transparent: true, opacity: room?.id === r.id ? 0.85 : 0.5, side: THREE.DoubleSide, depthWrite: false }));
+      const mesh = new THREE.Mesh(new THREE.ShapeGeometry(shape), new THREE.MeshBasicMaterial({ color: roomColour(r), transparent: true, opacity: room?.id === r.id ? 0.85 : 0.5, side: THREE.DoubleSide, depthWrite: false }));
       mesh.rotation.x = -Math.PI / 2; mesh.position.y = level.finished_floor_z_m + 0.08; // shape (x, y) -> world (x, 0, -y)
+      mesh.userData = { roomId: r.id, band: r.band };
       group.add(mesh);
     });
+    if (showPoints) (coverage.points ?? []).forEach((p) => {       // recorded points: Blender (x, y) -> glTF (x, z = -y), standing just above the room overlay
+      const dot = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.3, 12), new THREE.MeshBasicMaterial({ color: BAND_COLOUR[bandOfDbm(p.rssi_dbm)] }));
+      dot.position.set(p.x_m, level.finished_floor_z_m + 0.3, -p.y_m); dot.userData.recorded = true; group.add(dot);
+    });
+    const host = mount.current;                                      // expose what the 3D overlay really drew (also used by the browser acceptance test)
+    if (host) {
+      host.dataset.overlayBands = JSON.stringify(Object.fromEntries(group.children.filter((o) => o.userData.roomId).map((o) => [o.userData.roomId, o.userData.band])));
+      host.dataset.overlayPoints = String(group.children.filter((o) => o.userData.recorded).length);
+    }
     t.scene.add(group); t.render();
-    return () => { t.scene.remove(group); group.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); (m.material as THREE.Material | undefined)?.dispose(); }); t.render(); };
-  }, [level, coverage, room, sceneReady]);
+    return () => { if (host) { delete host.dataset.overlayBands; delete host.dataset.overlayPoints; } t.scene.remove(group); group.traverse((o) => { const m = o as THREE.Mesh; m.geometry?.dispose(); (m.material as THREE.Material | undefined)?.dispose(); }); t.render(); };
+  }, [level, coverage, room, sceneReady, roomColour, showPoints]);
 
   const pick = useCallback((ev: React.MouseEvent) => {
     const t = three.current; if (!t || !level || !coverage) return;
@@ -220,10 +262,15 @@ export default function CampusModelPage() {
                 {!level ? <p className="text-sm text-editorial-muted p-6">Select Ground, First or Second floor above to show its plan.</p> : (
                   <svg viewBox="0 0 96 64" className="w-full h-auto max-h-[60vh]" role="img" aria-label={`${level.title} plan, rooms coloured by estimated signal band`}>
                     {planRooms.map((r) => (
-                      <polygon key={r.id} points={r.polygon_world.map(svgPt).join(' ')} fill={BAND_COLOUR[r.band]} fillOpacity={0.55}
+                      <polygon key={r.id} data-room={r.id} data-band={r.band} points={r.polygon_world.map(svgPt).join(' ')} fill={roomColour(r)} fillOpacity={0.55}
                         stroke={room?.id === r.id ? '#0B0B0D' : '#fff'} strokeWidth={room?.id === r.id ? 0.45 : 0.2} className="cursor-pointer" onClick={() => setRoom(r)}>
                         <title>{`${r.id} ${r.name}: ${r.rssi_dbm ?? 'unknown'} dBm`}</title>
                       </polygon>
+                    ))}
+                    {showPoints && (coverage?.points ?? []).map((p, i) => (
+                      <circle key={i} data-kind="recorded" cx={p.x_m + 48} cy={32 - p.y_m} r={0.5} fill={BAND_COLOUR[bandOfDbm(p.rssi_dbm)]} stroke="#111" strokeWidth={0.12} pointerEvents="none">
+                        <title>{`Recorded ${p.rssi_dbm} dBm (${p.provenance})`}</title>
+                      </circle>
                     ))}
                   </svg>
                 )}
@@ -239,12 +286,32 @@ export default function CampusModelPage() {
               {level && coverage && !coverage.session && <p className="text-editorial-muted">{coverage.reason} Coverage is unknown.</p>}
               {coverage?.session && (
                 <>
-                  {synthetic && <p className="rounded-md bg-amber-50 border border-amber-200 text-amber-900 px-2 py-1.5"><b>Synthetic demo data.</b> These {coverage.session.points} points are deterministic test values, not field measurements.</p>}
+                  {synthetic
+                    ? <p className="rounded-md bg-amber-50 border border-amber-200 text-amber-900 px-2 py-1.5"><b>Synthetic demo data.</b> These {coverage.session.points} points are deterministic test values, not field measurements.</p>
+                    : <p className="rounded-md bg-emerald-50 border border-emerald-200 text-emerald-900 px-2 py-1.5"><b>Recorded survey points.</b> Room values are estimates derived from them; empty or distant rooms stay unknown.</p>}
+                  <div className="space-y-1.5 border-t border-editorial-border pt-2">
+                    <label className="block font-medium">Survey session
+                      <select aria-label="Survey session" className="block w-full mt-1 rounded border border-editorial-border p-1 bg-white font-normal" value={coverage.session.id ?? ''} onChange={(e) => setSessionId(e.target.value)}>
+                        {(coverage.sessions ?? []).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+                    {(coverage.sessions?.length ?? 0) > 1 && <label className="block font-medium">Compare with
+                      <select aria-label="Compare with session" className="block w-full mt-1 rounded border border-editorial-border p-1 bg-white font-normal" value={compareId} onChange={(e) => setCompareId(e.target.value)}>
+                        <option value="">no comparison</option>{(coverage.sessions ?? []).filter((x) => x.id !== coverage.session?.id).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></label>}
+                    {diff?.available && <label className="block font-medium"><SlidersHorizontal className="inline w-3 h-3 mr-1" aria-hidden />Colour by
+                      <select aria-label="Colour by" className="block w-full mt-1 rounded border border-editorial-border p-1 bg-white font-normal" value={layer} onChange={(e) => setLayer(e.target.value as 'band' | 'difference')}>
+                        <option value="band">Estimated signal band</option><option value="difference">Difference between the two surveys</option></select></label>}
+                    <label className="flex items-center gap-1.5"><input type="checkbox" checked={showPoints} onChange={(e) => setShowPoints(e.target.checked)} /> Show recorded measurement points ({coverage.points?.length ?? 0})</label>
+                  </div>
                   <p className="text-editorial-muted">Session “{coverage.session.name}” · {Object.entries(coverage.session.provenance_counts).map(([k, v]) => `${k}: ${v}`).join(', ')}</p>
                   <p className="text-editorial-muted">{coverage.method}</p>
-                  <ul className="space-y-1">{Object.keys(BAND_COLOUR).map((b) => (
+                  {layer === 'difference' && diff?.available
+                    ? <ul className="space-y-1" aria-label="Difference legend">
+                        <li className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: DIFF_COLOUR.up }} />Stronger by ≥ 3 dB</li>
+                        <li className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: DIFF_COLOUR.down }} />Weaker by ≥ 3 dB</li>
+                        <li className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: DIFF_COLOUR.flat }} />Within 3 dB or not comparable</li>
+                        <li className="text-editorial-muted">{diff.note}</li></ul>
+                    : <ul className="space-y-1">{Object.keys(BAND_COLOUR).map((b) => (
                     <li key={b} className="flex items-center gap-2"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: BAND_COLOUR[b] }} />{BAND_LABEL[b]} <span className="ml-auto text-editorial-muted">{planRooms.filter((r) => r.band === b).length}</span></li>
-                  ))}</ul>
+                  ))}</ul>}
                 </>
               )}
             </section>
@@ -256,14 +323,18 @@ export default function CampusModelPage() {
                   <p className="font-medium text-editorial-dark">{room.id} · {room.name}</p>
                   <p className="text-editorial-muted capitalize">{room.kind}{room.wing ? ` · ${room.wing.replace('_', ' ')}` : ''}{room.area_m2 ? ` · ${room.area_m2} m²` : ''}</p>
                   <p>Estimated signal: <b>{room.rssi_dbm === null ? 'unknown' : `${room.rssi_dbm} dBm`}</b> ({BAND_LABEL[room.band]})</p>
-                  <p className="text-editorial-muted">Basis: {room.basis.replace(/_/g, ' ')}{room.points_in_room ? ` (${room.points_in_room} points)` : ''}</p>
+                  <p className="text-editorial-muted">Evidence: {evidenceOf(room)}{room.points_in_room ? ` (${room.points_in_room} points in room)` : ''}{room.nearest_point_m != null ? ` · nearest recorded point ${room.nearest_point_m} m from the room centre` : ''}</p>
+                  {diffById[room.id] && <p>Difference between surveys: <b>{diffById[room.id].comparable && diffById[room.id].delta_db !== null ? `${diffById[room.id].delta_db! > 0 ? '+' : ''}${diffById[room.id].delta_db} dB` : 'not comparable'}</b></p>}
                   <Link to="/ai-copilot" state={{ floorId: level?.airgrid_floor_id, prompt: `Explain the Wi-Fi coverage in room ${room.id} (${room.name}).` }}
                     className="inline-flex items-center gap-1 text-editorial-copper hover:underline"><Sparkles className="w-3 h-3" /> Ask the Copilot</Link>
                 </>
               )}
             </section>
             {level?.airgrid_floor_id && (
-              <Link to="/heatmaps" className="flex items-center gap-1.5 text-xs text-editorial-copper hover:underline"><MapIcon className="w-3.5 h-3.5" aria-hidden /> Open Wi-Fi Heatmaps</Link>
+              <div className="space-y-1.5">
+                <Link to="/heatmaps" className="flex items-center gap-1.5 text-xs text-editorial-copper hover:underline"><MapIcon className="w-3.5 h-3.5" aria-hidden /> Open Wi-Fi Heatmaps</Link>
+                <Link to="/optimization" state={{ floorId: level.airgrid_floor_id }} className="flex items-center gap-1.5 text-xs text-editorial-copper hover:underline"><SlidersHorizontal className="w-3.5 h-3.5" aria-hidden /> Open Optimization Studio for this floor (virtual APs)</Link>
+              </div>
             )}
             <p className="text-[10px] text-editorial-muted">Model {(info.glb_bytes! / 1e6).toFixed(1)} MB · glTF Y-up; Blender Z-up mapping (x, y, z) → (x, z, −y)</p>
           </aside>

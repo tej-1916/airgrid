@@ -774,6 +774,8 @@ class OptimizationPlan(Base, TimestampMixin):
     status: Mapped[str] = mapped_column(String(32), default="draft", nullable=False)
     markers: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
     evidence_refs: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
+    # Hypothetical-AP scenario (candidates + explicit model parameters). Null for plain marker plans. Never measured data.
+    scenario: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     author_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     updated_by_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
@@ -782,6 +784,19 @@ class OptimizationPlan(Base, TimestampMixin):
     )
 
     author: Mapped[Optional["User"]] = relationship("User", foreign_keys=[author_id])
+
+
+class OptimizationPlanVersion(Base):
+    """Append-only snapshot written on every save so scenario versions can be reopened and compared."""
+    __tablename__ = "optimization_plan_versions"
+    __table_args__ = (UniqueConstraint("plan_id", "version", name="uq_optimization_plan_versions_plan_version"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(GUID, primary_key=True, default=uuid.uuid4)
+    plan_id: Mapped[uuid.UUID] = mapped_column(GUID, ForeignKey("optimization_plans.id", ondelete="CASCADE"), nullable=False, index=True)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
+    author_id: Mapped[Optional[uuid.UUID]] = mapped_column(GUID, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
 
 # 29. Campus Memberships (Campus-Scoped Access Control)

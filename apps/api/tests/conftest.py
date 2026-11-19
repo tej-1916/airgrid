@@ -40,8 +40,10 @@ def verify_isolated_test_database_session():
     """
     verify_test_database_isolation(settings.DATABASE_URL, settings.AIRGRID_ENV)
     assert async_engine is not None, "Async database engine must be configured for tests"
-    assert async_engine.url.database == "airgrid_test_db", (
-        f"Engine database '{async_engine.url.database}' does not match expected isolated test database 'airgrid_test_db'"
+    # Default is airgrid_test_db; AIRGRID_TEST_DATABASE_URL may select another *test* database (e.g. one per worktree).
+    expected_db = os.environ["DATABASE_URL"].split("?")[0].rsplit("/", 1)[-1]
+    assert async_engine.url.database == expected_db, (
+        f"Engine database '{async_engine.url.database}' does not match the selected isolated test database '{expected_db}'"
     )
 
 

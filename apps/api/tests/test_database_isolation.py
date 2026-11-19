@@ -16,12 +16,14 @@ async def test_active_database_engine_is_isolated():
     assert settings.AIRGRID_ENV == "testing", (
         f"Expected AIRGRID_ENV='testing', found '{settings.AIRGRID_ENV}'"
     )
-    assert "airgrid_test_db" in settings.DATABASE_URL, (
+    # airgrid_test_db by default; a per-worktree test database (AIRGRID_TEST_DATABASE_URL) is allowed if its name says "test".
+    selected = settings.DATABASE_URL.split("?")[0].rsplit("/", 1)[-1]
+    assert "test" in selected and selected != "airgrid_db", (
         f"settings.DATABASE_URL does not point to test database: {settings.DATABASE_URL}"
     )
     assert async_engine is not None, "Async engine is not configured"
-    assert async_engine.url.database == "airgrid_test_db", (
-        f"Async engine is connected to '{async_engine.url.database}', expected 'airgrid_test_db'"
+    assert async_engine.url.database == selected, (
+        f"Async engine is connected to '{async_engine.url.database}', expected '{selected}'"
     )
 
 

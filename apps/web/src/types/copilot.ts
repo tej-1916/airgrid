@@ -5,7 +5,7 @@ export interface Citation {
   metric: string;
   value: string | number;
   unit: string;
-  provenance: 'MEASURED' | 'INTERPOLATED_ESTIMATE' | 'SYNTHETIC_DEMO' | 'AI_RECOMMENDATION';
+  provenance: 'MEASURED' | 'INTERPOLATED_ESTIMATE' | 'SYNTHETIC_DEMO' | 'AI_RECOMMENDATION' | 'MODEL_PREDICTION';
 }
 
 export interface ChatMessage {

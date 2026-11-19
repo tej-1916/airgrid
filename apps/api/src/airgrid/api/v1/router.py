@@ -11,6 +11,7 @@ from airgrid.api.v1.endpoints import (
     diagnostics,
     analyst,
     optimization,
+    scenarios,
     collectors,
     retention,
     copilot,
@@ -30,6 +31,7 @@ api_router.include_router(ml.router)
 api_router.include_router(diagnostics.router)
 api_router.include_router(analyst.router)
 api_router.include_router(optimization.router)
+api_router.include_router(scenarios.router)
 api_router.include_router(collectors.router)
 api_router.include_router(retention.router)
 api_router.include_router(ai.router, prefix="/ai")
