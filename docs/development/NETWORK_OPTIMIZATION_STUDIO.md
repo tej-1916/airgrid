@@ -20,8 +20,12 @@ Reused, not duplicated: the IDW heatmap/support mask and validation logic (`camp
 - Tx power/antenna gain of real APs is unknown unless supplied; defaults are assumptions.
 - Changes smaller than the modelled sigma are flagged `within_model_uncertainty`.
 - Validate by surveying after any real change (collector `--submit`, explicit user action only).
+- The predicted effect is dominated by the assumed parameters: on the synthetic fixture the weak area of the *current* layout ranges from 0 to 1088 m² (of 1536 m²) and the predicted benefit of one added AP from 0 to 664 m² across 16 plausible parameter sets, although its direction never changed. Full assumptions, defaults, uncertainty, the observation-versus-prediction distinction and the missing field validation are in [`OPTIMIZATION_MODEL_NOTES.md`](OPTIMIZATION_MODEL_NOTES.md).
+- The model is not an ITU-R implementation (an earlier landing-page claim to that effect was removed).
 
 ## Safety boundaries
+**User-typed values are data, never instructions.** AP, scenario and room names reach the Copilot context only after `scenario_service.sanitize`: NFKC normalisation (full-width brackets become ASCII and are dropped), control / zero-width / bidi characters removed, MAC (colon, dash and dotted), any IPv4/IPv6-looking address and credentials masked, `[ ] < > { }` removed (a name cannot forge a `[MEASURED]` tag or close the context block), quote characters neutralised, all whitespace flattened to one line and the length capped; each label is then wrapped in double quotes, and the system prompt states that quoted text is user-typed data. NUL bytes in names are rejected with 422 at the API. Tests: `test_scenario_prompt_injection.py`, `test_copilot_scenarios.py` and the browser acceptance step that inspects the exact context a provider receives. This reduces, and cannot eliminate, the risk that a language model follows text inside a name: a plain sentence such as "ignore previous instructions" survives as quoted data.
+
 No router/AP configuration is read or written; no network scans or bandwidth tests are triggered by the Studio. Container simulation proves isolation (non-root, read-only rootfs, `cap_drop: ALL`, `no-new-privileges`, internal network, no published ports, tmpfs DB) and that the code runs reproducibly; it cannot validate RF behaviour.
 
 ## Running the acceptance check

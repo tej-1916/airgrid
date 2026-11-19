@@ -199,17 +199,21 @@ The seed registers building code `MEGA-MAIN`; the 3D page looks for that code. W
 
 Place virtual APs on a floor, compare a documented *model* prediction (`airgrid-logdistance-walls`, assumed parameters, not physically validated) with the current layout, save/reopen versioned scenarios, export a report, and ask the Copilot to explain the difference and uncertainty. See `docs/development/NETWORK_OPTIMIZATION_STUDIO.md`. Container lab: `infrastructure/lab/verify.sh`.
 
+**Scientific limitations.** The model is a generic log-distance + per-wall model with uncalibrated default parameters. It is *not* an ITU-R implementation, has never been compared with a survey of the real campus, and no before/after measurement of a real AP change exists. On the synthetic fixture the predicted benefit of one added AP ranged from 0 to 664 m² across 16 plausible parameter sets, so absolute figures are not reliable; a model-to-model difference is **not** a measured improvement. Assumptions, defaults, uncertainty, observation-versus-prediction and the missing field validation are in [`docs/development/OPTIMIZATION_MODEL_NOTES.md`](docs/development/OPTIMIZATION_MODEL_NOTES.md).
+
+**Studio verification, 19 Nov 2026 (local, isolated databases; synthetic data only).** Backend 317 passed, 12 skipped (6 private-model tests skipped in the default run and passed when the private model directory was supplied; 5 lab tests run only inside the container profile; 1 needs a local `.env`); frontend 7 files / 47 tests, `tsc -b` and production build clean; container lab 44 passed with `LAB VERIFIED`; Firefox acceptance 34/34 against the private campus model (stub provider, no language model); hostile scenario names also checked against two genuine models through the local FreeLLM gateway. Blender files and screenshots stay private and are not in this repository.
+
 ## Known limitations
 
 - Items listed under *Implemented, with known limitations* above apply.
 - **Dependencies.** At the time of release GitHub Dependabot listed open advisories, mainly in development tooling (Vite, esbuild) and a React Router server-rendering path that this client-side application does not use. Python packages with known advisories (Pillow, certifi, dnspython, opentelemetry-api) were upgraded in this release; remaining items are tracked in [`SUBMISSION_EVIDENCE.md`](docs/submission/SUBMISSION_EVIDENCE.md).
-- **Privacy of earlier documentation.** Some early screenshots and acceptance notes in `docs/` were captured on the developer's own machine and may show a local hostname, device address or Wi-Fi name. They remain in Git history, which was deliberately not rewritten.
+- **Privacy of earlier documentation.** Nine early screenshots in `docs/` that showed real network identifiers were redacted on 19 Nov 2026. The original, unredacted versions remain in Git history, which was deliberately not rewritten.
 - No production deployment exists; the project has only been run in local development.
 - *Devices*, *Monitor*, *Alerts* and *Reports* read backend data (collectors, access points, stored diagnostic findings, persisted telemetry) and show empty states when nothing has been recorded. They do not collect data by themselves; alerts are derived from stored findings and nothing is pushed.
 
 ## Future work
 
-Continuous monitoring and alerting; physical field acceptance survey and published accuracy of the spatial models; API-backed device, alert and report pages; shared rate-limit store and multi-worker deployment; CI with dependency and security scanning; optional 3D campus visualization; broader provider support for the AI gateway.
+Continuous monitoring and alerting; physical field acceptance survey and published accuracy of the spatial models; API-backed device, alert and report pages; shared rate-limit store and multi-worker deployment; dependency-advisory remediation in CI; field calibration and validation of the Optimization Studio model; optional 3D campus visualization; broader provider support for the AI gateway.
 
 ## Reference: measurement integrity and limitations
 
