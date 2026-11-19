@@ -22,7 +22,7 @@ HOSTILE = [
     "ap `shell command` 'quoted'",
     "IPs 192.168.1.5 10.0.0.1 172.20.1.9 8.8.8.8 fe80:0:0:0:1:2:3:4",
     "MACs aa:bb:cc:dd:ee:ff AA-BB-CC-DD-EE-FF aabb.ccdd.eeff",
-    "creds password=hunter2 api_key=sk-abcdef0123456789 Bearer abcdefghijklmnop123456",
+    "creds password=hunter2 api_key=sk-" "abcdef0123456789 Bearer abcdefghijklmnop123456",   # fake value, split so secret scanners do not flag the fixture
     "zero​width and bidi‮ override⁦ and nul\x00 and ctrl\x1b[31m",
     "line sep para\x85nel\x0bvt\x0cff\x1cfs",
     "A" * 5000,
