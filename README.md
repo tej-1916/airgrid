@@ -195,6 +195,10 @@ The seed registers building code `MEGA-MAIN`; the 3D page looks for that code. W
 **Later-version verification (18-19 November 2026):** backend 255 passed / 1 skipped; frontend `npm test` 23 passed; `npm run build` succeeds; browser scripts in `docs/verification/` run on 19 November 2026 against the synthetic demo database (3D 16/16 with the real Blender export, Copilot 9/9, resilience 8/8, route sweep 48/48). Screenshots: `docs/verification/screenshots/v1x_*.png`. Final report: `docs/submission/AirGrid_Final_Project_Report.pdf` and `.docx` (the checkpoint report `PROJECT_REPORT.*` is kept unchanged). The report still has placeholders for student name, roll number and department.
 
 
+### Network Optimization Studio (branch `feat/network-optimization-studio`)
+
+Place virtual APs on a floor, compare a documented *model* prediction (`airgrid-logdistance-walls`, assumed parameters, not physically validated) with the current layout, save/reopen versioned scenarios, export a report, and ask the Copilot to explain the difference and uncertainty. See `docs/development/NETWORK_OPTIMIZATION_STUDIO.md`. Container lab: `infrastructure/lab/verify.sh`.
+
 ## Known limitations
 
 - Items listed under *Implemented, with known limitations* above apply.
