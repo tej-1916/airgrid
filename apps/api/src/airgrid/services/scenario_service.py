@@ -4,6 +4,7 @@ Authorization is the caller's job (endpoints call require_floor_access before an
 the AP inventory, configures equipment or modifies recorded measurements. See ap_prediction for the model and its limits.
 """
 import re
+import unicodedata
 import uuid
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -160,13 +161,13 @@ async def resolve_ref(db: AsyncSession, floor_id: uuid.UUID, ref) -> Tuple[Optio
 # ---------------------------------------------------------------------------------------------------------------- report
 
 def _row(cells) -> str:
-    return "| " + " | ".join(str(c) for c in cells) + " |"
+    return "| " + " | ".join(md_cell(c) for c in cells) + " |"
 
 
 def render_report(plan_name: str, version: Optional[int], baseline: dict, result: dict, comparison: dict) -> str:
     """Deterministic Markdown explanation. Every number comes from the model result; nothing is added by an LLM."""
     s1, lab = result["summary"], result["labels"]
-    L: List[str] = [f"# Hypothetical AP layout report: {plan_name}" + (f" (version {version})" if version else ""), "",
+    L: List[str] = [f"# Hypothetical AP layout report: {md_cell(plan_name)}" + (f" (version {version})" if version else ""), "",
                     "> **Model prediction for hypothetical access points. Not a measurement and not physically validated.** "
                     "Nothing in this report configures or changes any real network equipment.", "",
                     f"Floor: {result['floor']['title']} | Model: {result['model']['id']} v{result['model']['version']} | Input hash: `{result['inputs_hash']}`", "",
@@ -225,10 +226,10 @@ async def copilot_grounding(db: AsyncSession, floor_id: uuid.UUID, max_plans: in
     cites: List[dict] = []
     for z in base["zones"]:
         if z["band"] in ("weak", "unknown") or z["uncertain"] or z["evidence"]["support"] == "no_recorded_evidence":
-            L.append(f"  - {z['id']} {sanitize(z['name'])}: predicted {z['mean_dbm']} dBm (sigma {z['sigma_db']} dB), band {z['band']}, P(weak)={z['p_weak']}, "
-                     f"serving AP {sanitize(z['serving_ap_name'] or z['serving_ap'] or 'none')} through {z['walls_to_serving_ap']} wall(s); recorded evidence: {z['evidence']['support']}"
+            L.append(f"  - {z['id']} {quoted(z['name'])}: predicted {z['mean_dbm']} dBm (sigma {z['sigma_db']} dB), band {z['band']}, P(weak)={z['p_weak']}, "
+                     f"serving AP {quoted(z['serving_ap_name'] or z['serving_ap'] or 'none')} through {z['walls_to_serving_ap']} wall(s); recorded evidence: {z['evidence']['support']}"
                      f" ({z['evidence']['recorded_points']} pts, nearest {z['evidence']['nearest_recorded_m']} m)")
-            cites.append({"source_id": f"model:{floor_id}:{z['id']}", "kind": "room", "label": f"{z['id']} {z['name']}", "metric": "Predicted RSSI",
+            cites.append({"source_id": f"model:{floor_id}:{z['id']}", "kind": "room", "label": f"{z['id']} {sanitize(z['name'])}", "metric": "Predicted RSSI",
                           "value": z["mean_dbm"], "unit": "dBm", "provenance": "MODEL_PREDICTION"})
     gaps = [z["id"] for z in base["zones"] if z["evidence"]["support"] == "no_recorded_evidence"]
     L.append(f"- Zones with no recorded measurement nearby (more real measurements needed): {', '.join(gaps) if gaps else 'none'}.")
@@ -244,8 +245,8 @@ async def copilot_grounding(db: AsyncSession, floor_id: uuid.UUID, max_plans: in
             continue
         cmp = ap.compare_results(base, res)
         sm = cmp["summary"]
-        cands = "; ".join(f"{sanitize(c['name'])} at ({c['x_m']}, {c['y_m']}) m" + ("" if c.get("enabled", True) else " [disabled]") for c in spec.get("candidates", []))
-        L += ["", f"### Saved hypothetical scenario '{sanitize(p.name)}' v{p.version} [MODEL_PREDICTION]",
+        cands = "; ".join(f"{quoted(c['name'])} at ({c['x_m']}, {c['y_m']}) m" + ("" if c.get("enabled", True) else " [disabled]") for c in spec.get("candidates", []))
+        L += ["", f"### Saved hypothetical scenario {quoted(p.name)} v{p.version} [MODEL_PREDICTION]",
               f"- Hypothetical (not installed) APs: {cands or 'none'}. Parameter overrides: {spec.get('parameters') or 'none (defaults are assumptions)'}.",
               f"- Weak area {sm['weak_area_m2']['a']} -> {sm['weak_area_m2']['b']} m2; expected weak area incl. uncertainty "
               f"{sm['expected_weak_area_m2']['a']} -> {sm['expected_weak_area_m2']['b']} m2; zones improved {cmp['zones_improved']}, worsened {cmp['zones_worsened']}; "
@@ -258,8 +259,30 @@ async def copilot_grounding(db: AsyncSession, floor_id: uuid.UUID, max_plans: in
     return L, cites
 
 
+_BAD_CATEGORIES = {"Cc", "Cf", "Cs", "Co", "Cn"}   # control, format (zero-width, bidi override), surrogate, private, unassigned
+_ANY_IPV4 = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
+_IPV6ISH = re.compile(r"(?i)\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{0,4}\b")
+
+
 def sanitize(text: str) -> str:
-    """User-typed labels go into the LLM context: mask MAC/IP/credentials, flatten whitespace, and drop [..] / <..> so a name
-    cannot fake a provenance tag (e.g. [MEASURED]) or open a new prompt section."""
+    """User-typed labels (AP, scenario, room names) go into the LLM context as DATA. Normalise look-alikes (NFKC turns full-width
+    brackets into ASCII ones), drop control / zero-width / bidi characters, mask MAC / any IP / credentials, drop [ ] < > so a name cannot
+    fake a provenance tag such as [MEASURED] or open a section, turn quote characters into a typographic apostrophe so it cannot close the
+    quotes it is wrapped in, flatten all whitespace (no line can start with an instruction) and cap the length."""
     from airgrid.services.copilot_service import sanitize_text
-    return " ".join(re.sub(r"[\[\]<>]", "", sanitize_text(str(text))).split())[:80]
+    t = unicodedata.normalize("NFKC", str(text))
+    t = "".join(ch for ch in t if unicodedata.category(ch) not in _BAD_CATEGORIES or ch in "\n\t")
+    t = _IPV6ISH.sub("IP:REDACTED", _ANY_IPV4.sub("IP:REDACTED", sanitize_text(t)))
+    t = re.sub(r"[\[\]<>{}]", "", t)
+    t = re.sub(r"[\"'`\u2018\u201c\u201d]", "\u2019", t)
+    return " ".join(t.split())[:80]
+
+
+def quoted(text: str) -> str:
+    """A sanitised user label wrapped in double quotes: the system prompt tells the model quoted text is data, never instructions."""
+    return '"' + sanitize(text) + '"'
+
+
+def md_cell(text) -> str:
+    """One markdown table cell / heading fragment: single line, pipes escaped, angle brackets as entities (no raw HTML)."""
+    return " ".join(str(text).replace("<", "&lt;").replace(">", "&gt;").split()).replace("|", "\\|")

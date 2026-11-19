@@ -32,8 +32,8 @@ async def test_context_tags_model_predictions_and_states_limits(world):
     text, cites = await context_for(world["viewer"], world["floor"])
     assert "[MODEL_PREDICTION]" in text and "NOT physically validated" in text
     assert "SYNTHETIC demonstration points" in text                       # real-vs-synthetic disclosure survives
-    assert "Saved hypothetical scenario 'South AP'" in text and "Saved hypothetical scenario 'Two APs'" in text   # two scenarios to compare
-    assert "Hypothetical (not installed) APs: Candidate 1 at (0.0, -9.0) m" in text
+    assert 'Saved hypothetical scenario "South AP"' in text and 'Saved hypothetical scenario "Two APs"' in text   # two scenarios to compare
+    assert 'Hypothetical (not installed) APs: "Candidate 1" at (0.0, -9.0) m' in text
     assert "wall_loss_db" in text and "Model assumptions:" in text and "smaller than the modelled uncertainty" in text
     assert "more real measurements needed" in text
     assert "serving AP" in text and "wall(s)" in text                     # why a zone is weak: serving AP, walls, evidence
