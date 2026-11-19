@@ -9,7 +9,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 
 from fastapi import HTTPException
-from sqlalchemy import and_, delete, desc, exists, func, select
+from sqlalchemy import and_, delete, desc, exists, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from airgrid.models.all_models import (
@@ -72,26 +72,27 @@ def merge_metrics(metrics: dict, rows) -> dict:
 async def get_trends(db: AsyncSession, collector_id: uuid.UUID | None, floor_id: uuid.UUID | None,
                      days: int, include_operator_reported: bool, current_user: User | None = None) -> dict:
     authorized_ids = None
-    if current_user and current_user.role != "administrator":
-        from airgrid.services.campus_service import require_campus_access, require_floor_access, get_authorized_campus_ids
+    scoped = bool(current_user and current_user.role != "administrator")
+    if scoped:
+        from airgrid.services.campus_service import (
+            get_authorized_campus_ids, require_floor_access, require_owned_or_campus_access, scope_filter)
         from airgrid.models.all_models import NetworkCollector
+        authorized_ids = await get_authorized_campus_ids(db, current_user)
         if floor_id:
             await require_floor_access(db, current_user, floor_id)
         if collector_id:
             collector = await db.get(NetworkCollector, collector_id)
-            if collector and collector.campus_id:
-                await require_campus_access(db, current_user, collector.campus_id)
-        if not floor_id and not collector_id:
-            authorized_ids = await get_authorized_campus_ids(db, current_user)
-            if not authorized_ids:
-                return {
-                    "collector_id": str(collector_id) if collector_id else None,
-                    "floor_id": str(floor_id) if floor_id else None,
-                    "days": days, "window_start": None, "window_end": None,
-                    "snapshot_count": 0, "truncated": False, "latest_snapshot_at": None,
-                    "series": [], "transitions": [], "aggregates": [], "speed_tests": [],
-                    "latest_speed_test_at": None,
-                }
+            if not collector:
+                raise HTTPException(status_code=404, detail="Collector not found.")
+            # collectors have no owner: a campus-less collector is administrator-only
+            await require_owned_or_campus_access(db, current_user, collector.campus_id, None)
+        if not floor_id and not collector_id and not authorized_ids:
+            return {
+                "window": None, "filters": {"collector_id": None, "floor_id": None, "include_operator_reported": include_operator_reported},
+                "series": [], "transitions": [], "speed_tests": [], "daily_aggregates": [], "truncated": False,
+                "availability": {}, "freshness": {"latest_observation_at": None, "observation_age_seconds": None, "latest_speed_test_at": None},
+                "notes": [],
+            }
 
     until = datetime.now(timezone.utc)
     since = until - timedelta(days=days)
@@ -122,8 +123,8 @@ async def get_trends(db: AsyncSession, collector_id: uuid.UUID | None, floor_id:
     st = select(InternetSpeedTest).where(InternetSpeedTest.executed_at >= since, InternetSpeedTest.status == "completed")
     if floor_id:
         st = st.where(InternetSpeedTest.floor_id == floor_id)
-    elif authorized_ids is not None and not collector_id:
-        st = st.where(InternetSpeedTest.campus_id.in_(authorized_ids))
+    if scoped:  # speed tests are not collector-bound: always restrict to authorized campuses / own campus-less rows
+        st = st.where(scope_filter(InternetSpeedTest, authorized_ids, current_user.id))
     speed_rows = list((await db.execute(st.order_by(InternetSpeedTest.executed_at).limit(500))).scalars())
     speed_tests = [{
         "id": str(s.id), "executed_at": _utc(s.executed_at).isoformat(), "vantage_point": s.vantage_point,
@@ -136,6 +137,13 @@ async def get_trends(db: AsyncSession, collector_id: uuid.UUID | None, floor_id:
         ag = ag.where(TelemetryDailyAggregate.collector_id == collector_id)
     if floor_id:
         ag = ag.where(TelemetryDailyAggregate.floor_id == floor_id)
+    if scoped:  # aggregates carry no campus_id: resolve through their collector or floor
+        from airgrid.models.all_models import Building, Floor, NetworkCollector
+        ag = ag.where(or_(
+            TelemetryDailyAggregate.collector_id.in_(select(NetworkCollector.id).where(NetworkCollector.campus_id.in_(authorized_ids or []))),
+            TelemetryDailyAggregate.floor_id.in_(select(Floor.id).join(Building, Floor.building_id == Building.id)
+                                                 .where(Building.campus_id.in_(authorized_ids or []))),
+        ))
     aggregates = [{
         "day": _utc(a.day).date().isoformat(), "collector_id": str(a.collector_id) if a.collector_id else None,
         "vantage_point": a.vantage_point, "sample_count": a.sample_count,

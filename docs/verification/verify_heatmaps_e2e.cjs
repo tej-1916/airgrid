@@ -79,7 +79,7 @@ const measurements = [
     normalized_x: 0.25,
     normalized_y: 0.25,
     rssi_dbm: -52.0,
-    network_label: 'Jain_Student',
+    network_label: 'Synthetic_Campus_WiFi',
     ap_reference: '00:11:22:33:44:55',
     frequency_mhz: 5200,
     channel: 40,
@@ -100,7 +100,7 @@ const measurements = [
     normalized_x: 0.50,
     normalized_y: 0.33,
     rssi_dbm: -61.0,
-    network_label: 'Jain_Student',
+    network_label: 'Synthetic_Campus_WiFi',
     ap_reference: '00:11:22:33:44:55',
     frequency_mhz: 5200,
     channel: 40,
@@ -121,7 +121,7 @@ const measurements = [
     normalized_x: 0.75,
     normalized_y: 0.42,
     rssi_dbm: -68.0,
-    network_label: 'Jain_Student',
+    network_label: 'Synthetic_Campus_WiFi',
     ap_reference: '00:11:22:33:44:55',
     frequency_mhz: 5200,
     channel: 40,
@@ -142,7 +142,7 @@ const measurements = [
     normalized_x: 0.44,
     normalized_y: 0.75,
     rssi_dbm: -74.0,
-    network_label: 'Jain_Student',
+    network_label: 'Synthetic_Campus_WiFi',
     ap_reference: '00:11:22:33:44:55',
     frequency_mhz: 5200,
     channel: 40,
@@ -208,7 +208,7 @@ const heatmapData = {
   is_sparse_warning: false,
   mask_radius_meters: 18.0,
   power_parameter: 2.0,
-  network_label: 'Jain_Student',
+  network_label: 'Synthetic_Campus_WiFi',
   ap_reference: '00:11:22:33:44:55',
   convex_hull_support: true,
 };
@@ -267,7 +267,7 @@ const liveConnection = {
   is_connected: true,
   connection_state: 'connected',
   interface_name: 'wlp0s20f3',
-  ssid: 'Jain_Student',
+  ssid: 'Synthetic_Campus_WiFi',
   bssid: '00:11:22:33:44:55',
   frequency_mhz: 5200,
   channel: 40,
@@ -551,7 +551,7 @@ async function runAcceptance() {
 
     // Verify Live Wi-Fi Telemetry card
     await page.getByText('Live Wi-Fi Telemetry').waitFor();
-    await page.getByText('Jain_Student').first().waitFor();
+    await page.getByText('Synthetic_Campus_WiFi').first().waitFor();
     await page.getByText('wlp0s20f3').first().waitFor();
     await page.getByText('-58 dBm').first().waitFor();
     await page.getByText('RX 360 Mbps / TX 300 Mbps').waitFor();

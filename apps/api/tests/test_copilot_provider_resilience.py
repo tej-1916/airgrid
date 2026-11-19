@@ -175,14 +175,22 @@ async def test_failed_stream_saves_real_error_and_retry_does_not_duplicate(auth_
 
 
 @pytest.mark.asyncio
-async def test_retry_without_prior_user_message_is_rejected(auth_client):
+async def test_retry_when_request_never_reached_server_is_a_normal_send_stored_once(auth_client, monkeypatch):
+    """Regression: a dropped connection leaves nothing stored; the UI's Retry used to hit 409 'Nothing to retry'."""
     client = await auth_client("network_engineer")
     cid = await _conv(client)
-    res = await client.post(
-        f"/api/v1/ai/copilot/conversations/{cid}/messages/stream",
-        json={"content": "Hello", "include_network_context": False, "retry": True},
-    )
-    assert res.status_code == 409
+
+    async def fake_stream(messages, model=None, **kw):
+        yield {"type": "chunk", "content": "Hi!", "model": "real/model"}
+        yield {"type": "done", "model": "real/model"}
+
+    monkeypatch.setattr(ai_gateway, "generate_chat_stream", fake_stream)
+    url = f"/api/v1/ai/copilot/conversations/{cid}/messages/stream"
+    for _ in range(2):  # empty conversation, then again after a completed turn: neither may re-run or duplicate older turns
+        res = await client.post(url, json={"content": "Hello", "include_network_context": False, "retry": True})
+        assert res.status_code == 200 and _events(res.text)[-1]["type"] == "done"
+    msgs = (await client.get(f"/api/v1/ai/copilot/conversations/{cid}")).json()["messages"]
+    assert [(m["role"], m["status"]) for m in msgs] == [("user", "completed"), ("assistant", "completed")] * 2
 
 
 @pytest.mark.asyncio

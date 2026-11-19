@@ -174,7 +174,7 @@ export const OperatorConsentModal: React.FC<OperatorConsentModalProps> = ({
               </select>
             </div>
             <div className="text-[10px] text-[#737373] flex items-center justify-between pt-0.5">
-              <span>Host Machine: <strong className="font-mono text-[#0B0B0D]">{interfacesData?.hostname || 'ostra'}</strong></span>
+              <span>Host Machine: <strong className="font-mono text-[#0B0B0D]">{interfacesData?.hostname || 'unknown'}</strong></span>
               {activeConnectedSsid && (
                 <span>Active SSID: <strong className="font-semibold text-emerald-700">{activeConnectedSsid}</strong></span>
               )}

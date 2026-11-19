@@ -1,6 +1,6 @@
 import os
 from typing import List, Optional, Union
-from pydantic import Field, field_validator, AliasChoices
+from pydantic import Field, field_validator, model_validator, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -87,6 +87,8 @@ class Settings(BaseSettings):
         ),
     )
     AIRGRID_AI_API_KEY: str = ""
+    # Private AirGrid records may only be sent to a loopback gateway unless an operator explicitly approves an external provider.
+    AIRGRID_AI_EXTERNAL_CONTEXT_APPROVED: bool = False
     AIRGRID_AI_DEFAULT_MODEL: str = ""
     AIRGRID_AI_TIMEOUT_SECONDS: int = Field(default=30, ge=1, le=60)
     AIRGRID_AI_MAX_RETRIES: int = Field(default=1, ge=0, le=2)  # transient failures before any output only
@@ -112,6 +114,8 @@ class Settings(BaseSettings):
             return [t.strip() for t in v.split(",") if t.strip()]
         return v
     # Floor Plan Storage & Uploads
+    # Local directory holding the Blender export (airgrid_mega_campus.glb + campus_geometry.json); not shipped with the repository.
+    AIRGRID_CAMPUS_MODEL_DIR: str = ""
     AIRGRID_UPLOAD_DIR: str = "data/uploads/floor_plans"
     AIRGRID_MAX_UPLOAD_SIZE_BYTES: int = 15 * 1024 * 1024  # 15 MB
     AIRGRID_ALLOWED_IMAGE_FORMATS: List[str] = ["png", "jpeg", "webp"]
@@ -125,6 +129,20 @@ class Settings(BaseSettings):
         if isinstance(v, str):
             return [fmt.strip().lower() for fmt in v.split(",") if fmt.strip()]
         return [fmt.lower() for fmt in v]
+
+    @model_validator(mode="after")
+    def reject_default_secrets_in_production(self):
+        """Refuse to start production/staging with the committed development secrets."""
+        if self.AIRGRID_ENV.lower() in ("production", "prod", "staging"):
+            defaults = {
+                "AIRGRID_SECRET_KEY": "airgrid-dev-secret-key-minimum-32-chars-long",
+                "AIRGRID_WEBHOOK_SECRET": "airgrid-webhook-hmac-secret-key-32chars",
+                "AIRGRID_DB_PASSWORD": "airgrid_local_dev_secret",
+            }
+            bad = [k for k, v in defaults.items() if getattr(self, k) == v]
+            if bad:
+                raise ValueError(f"Refusing to start in {self.AIRGRID_ENV}: development default(s) still set for {', '.join(bad)}.")
+        return self
 
 
 settings = Settings()

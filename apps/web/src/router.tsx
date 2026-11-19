@@ -1,3 +1,4 @@
+import CampusModelPage from './pages/CampusModelPage';
 import React from 'react';
 import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
@@ -57,6 +58,7 @@ export const router = createBrowserRouter([
         children: [
           { path: 'dashboard', element: <DashboardPage /> },
           { path: 'campuses', element: <CampusesPage /> },
+          { path: 'campus-3d', element: <CampusModelPage /> },
           { path: 'heatmaps', element: <HeatmapsPage /> },
           { path: 'speed-test', element: <SpeedTestPage /> },
           { path: 'devices', element: <DevicesPage /> },

@@ -65,3 +65,11 @@ uploads/
 apps/api/data/models/
 *.tsbuildinfo
 data/models/
+
+# Private 3D campus assets (Blender source, GLB export, geometry metadata) are never committed
+creative/
+*.blend
+*.blend1
+*.glb
+*.gltf
+campus_geometry.json

@@ -29,7 +29,8 @@ from airgrid.services.campus_service import require_campus_access
 from airgrid.services.copilot_service import (
     build_copilot_system_prompt,
     build_messages_history,
-    gather_network_intelligence,
+    gather_floor_authorize,
+    gather_scoped_context,
     sanitize_text,
 )
 
@@ -210,6 +211,8 @@ async def send_message(
     # Campus authorization check before message intake or AI processing
     if conv.campus_id and user.role != "administrator":
         await require_campus_access(db, user, conv.campus_id)
+    if req.floor_id is not None:
+        await gather_floor_authorize(db, user, req.floor_id, conv.campus_id)  # 403/404 before intake and before any provider call
 
     # 1. Save user message
     user_content_clean = sanitize_text(req.content.strip())
@@ -232,7 +235,7 @@ async def send_message(
     context_text = ""
     citations = []
     if req.include_network_context:
-        context_text, citations = await gather_network_intelligence(db, user, conv.campus_id)
+        context_text, citations = await gather_scoped_context(db, user, conv.campus_id, req.floor_id)
 
     # 3. Build system prompt and message history
     system_prompt = build_copilot_system_prompt(context_text)
@@ -295,8 +298,11 @@ async def stream_message(
     # Campus authorization check before message intake or AI processing
     if conv.campus_id and user.role != "administrator":
         await require_campus_access(db, user, conv.campus_id)
+    if req.floor_id is not None:
+        await gather_floor_authorize(db, user, req.floor_id, conv.campus_id)  # 403/404 before intake and before any provider call
 
     # 1. Save user message (or, on retry, re-run the stored one and drop the failed reply: no duplicates)
+    retrying = False
     if req.retry:
         tail_res = await db.execute(
             select(AIChatMessage)
@@ -308,13 +314,15 @@ async def stream_message(
         failed = []
         while tail and tail[0].role == "assistant" and tail[0].status == "error":
             failed.append(tail.pop(0))
-        if not tail or tail[0].role != "user":
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Nothing to retry in this conversation.")
-        for m in failed:
-            await db.delete(m)
-        conv.updated_at = datetime.now(timezone.utc)
-        await db.commit()
-    else:
+        # Only a stored, unanswered user message can be re-run. Otherwise the earlier request never reached the
+        # server (e.g. the connection dropped first), nothing exists to duplicate, and the retry is an ordinary send.
+        retrying = bool(tail) and tail[0].role == "user"
+        if retrying:
+            for m in failed:
+                await db.delete(m)
+            conv.updated_at = datetime.now(timezone.utc)
+            await db.commit()
+    if not retrying:
         user_content_clean = sanitize_text(req.content.strip())
         db.add(AIChatMessage(conversation_id=conv.id, role="user", content=user_content_clean, status="completed"))
         if conv.title in ("New Conversation", "AirGrid Copilot Chat"):
@@ -326,7 +334,7 @@ async def stream_message(
     context_text = ""
     citations = []
     if req.include_network_context:
-        context_text, citations = await gather_network_intelligence(db, user, conv.campus_id)
+        context_text, citations = await gather_scoped_context(db, user, conv.campus_id, req.floor_id)
 
     system_prompt = build_copilot_system_prompt(context_text)
     chat_messages = await build_messages_history(db, conv, system_prompt)
@@ -435,6 +443,8 @@ async def regenerate_message(
     conv = res.scalar_one_or_none()
     if not conv:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found.")
+    if conv.campus_id and user.role != "administrator":
+        await require_campus_access(db, user, conv.campus_id)  # revoked membership must not reach the provider
 
     target_stmt = select(AIChatMessage).where(
         and_(AIChatMessage.id == message_id, AIChatMessage.conversation_id == conv.id, AIChatMessage.role == "assistant")
@@ -444,7 +454,7 @@ async def regenerate_message(
     if not existing_msg:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assistant message not found to regenerate.")
 
-    context_text, citations = await gather_network_intelligence(db, user, conv.campus_id)
+    context_text, citations = await gather_scoped_context(db, user, conv.campus_id)
     system_prompt = build_copilot_system_prompt(context_text)
     chat_messages = await build_messages_history(db, conv, system_prompt)
 

@@ -52,18 +52,11 @@ interface SpeedTestItem {
 }
 
 interface TrendsData {
-  collector_id: string | null;
-  floor_id: string | null;
-  days: number;
-  window_start: string | null;
-  window_end: string | null;
-  snapshot_count: number;
+  // Mirrors GET /api/v1/diagnostics/trends (only fields this page reads).
   truncated: boolean;
-  latest_snapshot_at: string | null;
   series: TrendSeriesItem[];
   transitions: TransitionItem[];
   speed_tests: SpeedTestItem[];
-  latest_speed_test_at: string | null;
 }
 
 export const MonitorPage: React.FC = () => {
@@ -114,7 +107,7 @@ export const MonitorPage: React.FC = () => {
             <span className="text-xs uppercase tracking-wider font-semibold text-[#BE6B37]">Telemetry Analytics</span>
             <span className="text-xs bg-[#E5E7EB] text-neutral-700 px-2 py-0.5 rounded-full font-mono">Real Network Intelligence</span>
           </div>
-          <h1 className="text-2xl font-bold mt-1 text-[#0B0B0D]">Live & Historical Network Monitor</h1>
+          <h1 className="text-2xl font-bold mt-1 text-[#0B0B0D]">Network Monitor (recorded history)</h1>
           <p className="text-sm text-neutral-600 mt-1">
             Persisted time-series telemetry, gateway first-hop latency, BSSID roams, and speed test metrics.
           </p>
@@ -166,7 +159,7 @@ export const MonitorPage: React.FC = () => {
             <Activity className="w-4 h-4 text-[#BE6B37]" />
           </div>
           <div className="text-2xl font-bold text-[#0B0B0D] mt-1 font-mono">
-            {trends?.snapshot_count ?? 0}
+            {trends?.series.length ?? 0}{trends?.truncated ? '+' : ''}
           </div>
           <div className="text-[11px] text-neutral-500 mt-1">
             Window: Past {days} {days === 1 ? 'day' : 'days'}

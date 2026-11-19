@@ -41,7 +41,7 @@ Campus Wi-Fi complaints ("the signal is weak in the lab") are usually investigat
 
 | Module | Limitation |
 |---|---|
-| **Wi-Fi monitoring** | Collection is **on demand** (operator-triggered, or by a registered collector the operator runs). There is no continuous monitoring daemon, and the *Live Network Monitor* page is a UI shell that makes no API calls. |
+| **Wi-Fi monitoring** | Collection is **on demand** (operator-triggered, or by a registered collector the operator runs). There is no continuous monitoring daemon. The *Network Monitor* page (a UI shell in 1.0) now shows **recorded history only** from `/api/v1/diagnostics/trends`; it does not poll or collect. |
 | **Network intelligence (ML Lab, AP optimization)** | Training, held-out evaluation, baselines and prediction maps are implemented and tested on isolated synthetic fixtures. The application database currently holds **zero** instrument-verified survey points, so operational training is correctly *unavailable* until at least 15 real points across 2 sessions exist. No accuracy figure from physical field data is claimed. |
 | **Heatmaps and collectors on real hardware** | The workflow is verified in software and with a real Linux Wi-Fi interface on the development machine. A formal physical field acceptance survey has not been performed. |
 | **Rate limiting** | Per process; a shared store is required before running several API workers. |
@@ -49,7 +49,7 @@ Campus Wi-Fi complaints ("the signal is weak in the lab") are usually investigat
 
 ### Planned for a future version (not part of 1.0)
 
-Continuous monitoring and alerting; API-backed *Devices & APs*, *Alerts* and *Reports* pages (currently UI shells); a 3D campus view (the Blender "Mega Campus" is separate local work and is **not** part of this repository or release); a shared rate-limit store; CI pipeline and a deployment target (no deployment has been performed); field validation of model accuracy.
+Continuous monitoring and alerting; push notifications for alerts (the *Alerts* page lists stored diagnostic findings only; *Devices & APs*, *Alerts* and *Reports* read backend data since the post-1.0 work); a 3D campus view (the Blender "Mega Campus" is separate local work and is **not** part of this repository or release); a shared rate-limit store; CI pipeline and a deployment target (no deployment has been performed); field validation of model accuracy.
 
 ## System architecture
 
@@ -164,13 +164,44 @@ An automated review of an earlier push reported authorization problems. Each was
 6. **AI Analyst / Copilot** (needs an AI key): ask a question and open the cited records; try the Copilot and use **Retry** after stopping the provider.
 7. Sign in as a second, unassigned user to see that other campuses' data, history and activity are not visible.
 
+## Post-submission additions (development branch, not part of the `v1.0-submission` checkpoint)
+
+The `v1.0-submission` tag (17 November 2026) is unchanged. Later work on branch `feat/campus-3d-wifi-copilot`:
+
+| Addition | Status |
+|---|---|
+| **3D Campus page** (`/campus-3d`): three.js viewer for the Blender Mega Campus GLB, orbit/zoom/pan, reset camera, whole building or single floor, floor show/hide, room picking, room panel, 2D plan switch | Implemented; browser-verified (16/16 checks) |
+| **Room coverage**: per-room estimate from the existing IDW heatmap engine, coloured good / fair / weak / unknown. Not a radio-propagation simulation | Implemented; unit and API tests |
+| **Blender to plan mapping**: `px = W/2 + x*ppm`, `py = H/2 - y*ppm`; glTF `(x, y, z) = (bx, bz, -by)` | Tested with known coordinates |
+| **Floor-grounded Copilot**: choose a floor in 3D, ask a question; answers cite room records and state when data is synthetic. Floor authorization runs before the question is stored and before any provider call, on regular and streaming endpoints | Implemented; tests + browser check (provider needed 2 retries) |
+| **Data-sharing policy**: private records go only to a loopback gateway unless `AIRGRID_AI_EXTERNAL_CONTEXT_APPROVED=true`; assistant history is withheld otherwise | Implemented; tested |
+| **Synthetic demo seed**: `python -m airgrid.demo_seed [--plans-dir DIR]` creates a labelled demo campus (`data_provenance=controlled_test_import`, note "SYNTHETIC DEMO") | Implemented; tested |
+
+**The Blender files are not in this repository.** Set `AIRGRID_CAMPUS_MODEL_DIR` to a folder containing `airgrid_mega_campus.glb` and `campus_geometry.json`; without them the page reports "3D model unavailable".
+
+Demo workflow: run migrations, create an admin (`airgrid-admin bootstrap-admin`), run the seed, start the API and web app, open **3D Campus**, select a floor, click a room, then **Ask the Copilot**. Browser checks: `docs/verification/verify_v1x_campus3d.cjs`, `verify_v1x_copilot.cjs`, `verify_v1x_sweep.cjs` (48 route/width combinations passed with no API or page errors).
+
+Limits: all coverage shown comes from synthetic demo points, so no field accuracy is claimed; the free AI provider is intermittently slow or unavailable; wall attenuation in the 3D model is not used for prediction; no public deployment exists.
+
+**Can the public repository reproduce the 3D demo? No.** The repository contains the viewer, the API, the tests and the seed, but not the model. To run the 3D demo you need your own copy of two files, `airgrid_mega_campus.glb` (glTF 2.0, exported from Blender, node `extras.airgrid_floor` = ground / first / second / roof / site / atrium) and `campus_geometry.json` (floor calibration and room polygons), in one folder:
+
+```bash
+export AIRGRID_CAMPUS_MODEL_DIR=/path/to/that/folder      # backend environment
+python -m airgrid.demo_seed --plans-dir /path/to/renders   # optional plan images; creates the labelled synthetic demo
+```
+
+The seed registers building code `MEGA-MAIN`; the 3D page looks for that code. Without the files the page shows "3D model unavailable" and explains why. Screenshots of the 3D view are not published for the same reason.
+
+**Later-version verification (18-19 November 2026):** backend 255 passed / 1 skipped; frontend `npm test` 23 passed; `npm run build` succeeds; browser scripts in `docs/verification/` run on 19 November 2026 against the synthetic demo database (3D 16/16 with the real Blender export, Copilot 9/9, resilience 8/8, route sweep 48/48). Screenshots: `docs/verification/screenshots/v1x_*.png`. Final report: `docs/submission/AirGrid_Final_Project_Report.pdf` and `.docx` (the checkpoint report `PROJECT_REPORT.*` is kept unchanged). The report still has placeholders for student name, roll number and department.
+
+
 ## Known limitations
 
 - Items listed under *Implemented, with known limitations* above apply.
 - **Dependencies.** At the time of release GitHub Dependabot listed open advisories, mainly in development tooling (Vite, esbuild) and a React Router server-rendering path that this client-side application does not use. Python packages with known advisories (Pillow, certifi, dnspython, opentelemetry-api) were upgraded in this release; remaining items are tracked in [`SUBMISSION_EVIDENCE.md`](docs/submission/SUBMISSION_EVIDENCE.md).
 - **Privacy of earlier documentation.** Some early screenshots and acceptance notes in `docs/` were captured on the developer's own machine and may show a local hostname, device address or Wi-Fi name. They remain in Git history, which was deliberately not rewritten.
 - No production deployment exists; the project has only been run in local development.
-- UI placeholder pages (*Devices*, *Monitor*, *Alerts*, *Reports*) do not use backend data and must not be read as implemented features.
+- *Devices*, *Monitor*, *Alerts* and *Reports* read backend data (collectors, access points, stored diagnostic findings, persisted telemetry) and show empty states when nothing has been recorded. They do not collect data by themselves; alerts are derived from stored findings and nothing is pushed.
 
 ## Future work
 

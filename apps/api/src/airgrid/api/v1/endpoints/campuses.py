@@ -14,6 +14,7 @@ from fastapi import (
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from airgrid.core.config import settings
 from airgrid.api.deps import (
     get_db,
     require_authenticated,
@@ -433,7 +434,7 @@ async def upload_floor_plan(
     _: None = Depends(verify_csrf),
 ):
     """Upload floor plan file (Admin or Network Engineer)."""
-    file_bytes = await file.read()
+    file_bytes = await file.read(settings.AIRGRID_MAX_UPLOAD_SIZE_BYTES + 1)  # bounded: oversize -> 413 in save_floor_plan
     ip_addr = request.client.host if request.client else None
     plan = await campus_service.save_floor_plan(
         db=db,

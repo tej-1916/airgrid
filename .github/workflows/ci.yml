@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, "feat/**", "release/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: airgrid
+          POSTGRES_PASSWORD: airgrid_local_dev_secret   # throwaway CI-only credential for the service container
+          POSTGRES_DB: airgrid_test_db
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U airgrid -d airgrid_test_db" --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: apps/api
+    env:
+      AIRGRID_ENV: testing
+      AIRGRID_AI_ENABLED: "false"   # no FreeLLM credentials are needed or provided
+      AIRGRID_AI_API_KEY: ""
+      UV_PYTHON: "3.13"   # the version the suite was verified on
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - run: uv sync --frozen --all-extras
+      - name: Create and migrate the throwaway databases (test DB, plus an empty dev DB the isolation test inspects)
+        env:
+          PGPASSWORD: airgrid_local_dev_secret
+        run: |
+          psql -h 127.0.0.1 -U airgrid -d postgres -c "CREATE DATABASE airgrid_db"
+          for db in airgrid_test_db airgrid_db; do
+            DATABASE_URL_SYNC=postgresql://airgrid:airgrid_local_dev_secret@127.0.0.1:5432/$db uv run alembic upgrade head
+          done
+      - name: Static checks (byte-compile)
+        run: uv run python -m compileall -q src
+      - name: Tests
+        run: uv run python -m pytest -q -p no:cacheprovider
+      - name: Dependency audit (Python, informational)
+        run: |
+          uv export --frozen --no-dev --no-hashes -o /tmp/requirements.txt
+          uvx pip-audit -r /tmp/requirements.txt --no-deps --disable-pip || true
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - name: Type-check and production build
+        run: npm run build
+      - name: Component tests
+        run: npm test
+      - name: Dependency audit (runtime dependencies must have no high/critical advisories)
+        run: npm audit --omit=dev --audit-level=high
+
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

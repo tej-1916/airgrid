@@ -13,6 +13,7 @@ import {
 import { Link } from 'react-router-dom';
 import { apiRequest } from '../services/api';
 import { useAuth } from '../context/AuthContext';
+import { escapeHtml } from '../utils/escapeHtml';
 
 interface DiagnosticReport {
   id: string;
@@ -104,9 +105,13 @@ export const ReportsPage: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
-  const handlePrint = (title: string, summary: string, metadata: Record<string, any>) => {
+  const handlePrint = (rawTitle: string, rawSummary: string, rawMetadata: Record<string, any>) => {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
+    // Record fields (titles, SSIDs, plan names) are untrusted: escape before writing HTML into the same-origin window.
+    const title = escapeHtml(rawTitle);
+    const summary = escapeHtml(rawSummary);
+    const metadata = Object.fromEntries(Object.entries(rawMetadata).map(([k, v]) => [escapeHtml(k), v == null ? null : escapeHtml(v)]));
     printWindow.document.write(`
       <!DOCTYPE html>
       <html>

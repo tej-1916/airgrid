@@ -24,6 +24,7 @@ class ChatMessageCreate(BaseModel):
     model: Optional[str] = Field(default=None, max_length=100)
     include_network_context: bool = True
     retry: bool = False  # re-run the last user message instead of saving a new one
+    floor_id: Optional[uuid.UUID] = None  # optional focus: ground the answer in this authorized floor
 
 
 class ChatMessageResponse(BaseModel):

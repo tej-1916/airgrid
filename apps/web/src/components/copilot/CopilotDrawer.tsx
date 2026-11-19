@@ -31,7 +31,7 @@ export const CopilotDrawer: React.FC = () => {
     try {
       const [statusData, convListData] = await Promise.all([
         copilotService.getGatewayStatus().catch(() => null),
-        copilotService.listConversations(10).catch(() => ({ conversations: [], total: 0 })),
+        copilotService.listConversations(10),
       ]);
 
       if (statusData && statusData.active_model) {

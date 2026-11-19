@@ -217,3 +217,50 @@ async def test_dashboard_is_campus_and_owner_scoped(client, world):
     feed_adm = (await client.get("/api/v1/dashboard/activity?limit=100", headers=hadm)).text
     both = (mark_a in feed_adm, mark_b in feed_adm)
     assert both == (True, True)
+
+
+@pytest.mark.asyncio
+async def test_trends_do_not_leak_across_campuses_or_unowned_collectors(client, world):
+    """Regression: /diagnostics/trends used to return unscoped speed tests (collector_id given), unscoped daily
+    aggregates (no filter), and any campus-less collector's data to every authenticated user."""
+    w = world
+    async with AsyncSessionLocal() as s:
+        from airgrid.models.all_models import TelemetryDailyAggregate
+        s.add(TelemetryDailyAggregate(id=uuid.uuid4(), day=NOW(), collector_id=w["coll_b"].id, floor_id=w["floor_b"].id,
+                                      vantage_point="client", data_provenance="MEASURED", sample_count=3, metrics={"rssi_dbm": {"sum": -249.0, "count": 3}}))
+        s.add(_snap(None, None, -70.0))
+        await s.commit()
+        null_snap = (await s.execute(__import__("sqlalchemy").select(NetworkTelemetrySnapshot).where(NetworkTelemetrySnapshot.rssi_dbm == -70.0))).scalars().first()
+        null_snap.collector_id = w["coll_null"].id
+        await s.commit()
+    ha, hadm = await login(client, w["alpha"]), await login(client, w["admin"])
+    # 1. a collector filter must not switch off speed-test scoping: alpha sees only campus A / own rows, never campus B's 77.7
+    async with AsyncSessionLocal() as s:
+        coll_a = NetworkCollector(id=uuid.uuid4(), name="syn-coll-a", campus_id=w["ca"].id, secret_salt="z" * 16)
+        s.add(coll_a)
+        await s.commit()
+    r = await client.get(f"/api/v1/diagnostics/trends?collector_id={coll_a.id}&days=1", headers=ha)
+    assert r.status_code == 200
+    assert 77.7 not in {t["download_mbps"] for t in r.json()["speed_tests"]}
+    assert (await client.get(f"/api/v1/diagnostics/trends?collector_id={uuid.uuid4()}&days=1", headers=ha)).status_code == 404
+    # 2. unfiltered: only alpha's campus data; no campus-B aggregates
+    r = await client.get("/api/v1/diagnostics/trends?days=1", headers=ha)
+    assert r.status_code == 200
+    assert r.json()["daily_aggregates"] == []
+    assert {t["download_mbps"] for t in r.json()["speed_tests"]} <= {55.5, 31.0}  # own campus + own campus-less only
+    # 3. campus-less collector is administrator-only
+    r = await client.get(f"/api/v1/diagnostics/trends?collector_id={w['coll_null'].id}&days=1", headers=ha)
+    assert r.status_code == 403
+    assert (await client.get(f"/api/v1/diagnostics/trends?collector_id={w['coll_null'].id}&days=1", headers=hadm)).status_code == 200
+    # admin still sees campus B aggregates
+    r = await client.get("/api/v1/diagnostics/trends?days=1", headers=hadm)
+    assert r.status_code == 200 and r.json()["daily_aggregates"]
+
+
+def test_production_refuses_default_secrets():
+    from pydantic import ValidationError
+    from airgrid.core.config import Settings
+    with pytest.raises(ValidationError):
+        Settings(AIRGRID_ENV="production")
+    assert Settings(AIRGRID_ENV="production", AIRGRID_SECRET_KEY="x" * 40, AIRGRID_WEBHOOK_SECRET="y" * 40, AIRGRID_DB_PASSWORD="z" * 20)
+    assert Settings(AIRGRID_ENV="development")  # dev keeps its defaults
